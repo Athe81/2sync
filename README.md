@@ -15,7 +15,7 @@ Depends: bash, sqlite3
 
 Usage:
 ```
-2sync [OPTION] NAME"
+2sync [OPTION] NAME
 OPTION:"
 	--create	create a new config"
 	--delete	delete a existing config"
