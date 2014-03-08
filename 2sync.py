@@ -1,8 +1,33 @@
 #! /usr/bin/env python3
 import os
+import sys
 import pickle
 import shutil
 import logging
+
+def log_and_raise(msg, e=None):
+	"""
+	Log the exception message an raise a ExitError
+	
+	The ExitError is for exceptions with a known reason.
+	Exceptions with a unknown reason should not be handelt with this function. 
+	"""
+	logging.critical(msg)
+	if e != None:
+		logging.debug(e)
+	raise ExitError(msg)
+
+class ExitError(Exception):
+	"""
+	User-defined Exception for all known Exceptions
+	
+	This is used for Exceptions who stop the programm, with an known reason.
+	If the reason is unknown the original Exception will passed to the main program 
+	"""
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
 
 class sync():
 	"""
@@ -38,8 +63,9 @@ class sync():
 		try:
 			f = open('folders', 'rb')
 		except FileNotFoundError:
-			logging.error("Could not load data from: '" + 'folders' + "' not found")
-			pass # TODO: Throw Exception
+			logging.warn("Could not load data from file: '" + 'folders' + "'. File not found")
+		except PermissionError as e:
+			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
 		else:
 			self.folders = pickle.load(f)
 			f.close()
@@ -47,8 +73,9 @@ class sync():
 		try:
 			f = open('files', 'rb')
 		except FileNotFoundError:
-			logging.error("Could not load data from: '" + 'files' + "' not found")
-			pass # TODO: Throw Exception
+			logging.warn("Could not load data from file: '" + 'files' + "'. File not found")
+		except PermissionError as e:
+			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
 		else:
 			self.files = pickle.load(f)
 			f.close()
@@ -60,16 +87,14 @@ class sync():
 		try:
 			with open('folders', 'wb') as f: 
 				pickle.dump(self.folders, f)
-		except:
-			logging.error("Could not save data to: '" + 'folders' + "'")
-			pass # TODO: Throw Exception
+		except :
+			log_and_raise("Could not save data to: '" + 'folders' + "'")
 		
 		try:
 			with open('files', 'wb') as f:
 				pickle.dump(self.files, f)
-		except:
-			logging.error("Could not save data to: '" + 'files' + "'")
-			pass # TODO: Throw Exception
+		except PermissionError:
+			log_and_raise("Could not save data to: '" + 'files' + "'", e)
 			
 	def _stat(self, file):
 		"""
@@ -77,8 +102,8 @@ class sync():
 		"""
 		try:
 			return oct(os.lstat(file).st_mode)[-3:]
-		except:
-			logging.error("Could not read stat from: '" + file + "'")
+		except PermissionError:
+			log_and_raise("Could not read stat from: '" + file + "'", e)
 		
 	def _moddate(self, file):
 		"""
@@ -86,8 +111,8 @@ class sync():
 		"""
 		try:
 			return os.lstat(file).st_mtime
-		except:
-			logging.error("Could not read moddate from: '" + file + "'")
+		except Exception as e:
+			log_and_raise("Could not read moddate from: '" + file + "'", e)
 	
 	def _test_string(self, parsed_filters, string):
 		"""
@@ -129,8 +154,6 @@ class sync():
 			root = self.roots[x]
 			len_root_path = len(root.path)
 			for path, _, files in os.walk(root.path, followlinks=False):
-				# if path == root.path:
-					# continue
 				sub_path = path[len_root_path:] + "/"
 				if self._test_string(config.ignore_not_path, sub_path) == True:
 					root.folders[sub_path] = self._stat(root.path + sub_path)
@@ -193,10 +216,10 @@ class sync():
 					action = int(input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master "))
 				except KeyboardInterrupt:
 					print()
+					logging.critical("Exit programm while KeyboardInterrupt (ctrl + c)")
 					exit()
-				except:
+				except ValueError:
 					action = -1
-					pass
 				
 				if action == 0:
 					new_file_conflict.add(sub_path)
@@ -221,9 +244,15 @@ class sync():
 				else:
 					print("Folder: " + self.roots[x].path + sub_path + " deleted")
 			while True:
-				action = input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master ")
-				try: action = int(action)
-				except: action = -1
+				try:
+					action = int(input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master "))
+				except KeyboardInterrupt:
+					print()
+					logging.critical("Exit programm while KeyboardInterrupt (ctrl + c)")
+					exit()
+				except ValueError:
+					action = -1
+					
 				if action == 0:
 					new_folder_conflict.add(sub_path)
 					break
@@ -233,7 +262,9 @@ class sync():
 				elif action == 2:
 					self.roots[0].changed_folders.remove(sub_path)
 					break
+				
 				print("Wrong input. Please insert a correct input")
+				
 			self.folder_conflicts = new_folder_conflict
 				
 		for x in range(len(self.roots)):
@@ -316,8 +347,8 @@ class config(object):
 	root has to be a absolutley path to a directory
 	All ignore-keys can use * at the value as placeholder for everything
 	"""
-	def __init__(self):
-		logging.debug("Create config object")
+	def __init__(self, config):
+		logging.info("Create config object")
 		
 		self._keys = ['root']
 		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
@@ -325,6 +356,8 @@ class config(object):
 		
 		for key in (self._keys + self._parse_keys): 
 			self._config[key] = []
+		
+		self._parse(config)
 	
 	def _parse_exp(self, value):
 		"""
@@ -332,7 +365,7 @@ class config(object):
 		
 		Is used to parse the ignore values. After parsing it can be used with "test_string"
 		"""
-		logging.debug("Parse expression: '" + value + "'")
+		logging.info("Parse expression: '" + value + "'")
 		
 		pre, post = 0, 0
 		if value[:1] == "*":
@@ -343,12 +376,14 @@ class config(object):
 			value = value[:-1]
 		return (pre, post, value.split("*"))
 	
-	def parse(self, path):
+	def _parse(self, path):
 		"""
 		Parse a config-file
 		
 		Parse the given config-file an test if the config-file match the specifications  
 		"""
+		
+		logging.info("Parse config-file: '" + path + "'")
 		try:
 			# Open config file and parse content.
 			for line in open(path, 'r'):
@@ -363,25 +398,22 @@ class config(object):
 				key = key.strip()
 				value = value.strip()
 				if not key in (self._keys + self._parse_keys):
-					logging.error("Invalid key: '" + key + "' in config-file: '" + filename + "'")
-					# TODO: Throw error
-					return 1
+					log_and_raise("Invalid key: '" + key + "' in config-file: '" + filename + "'")
 				if key in self._parse_keys:
 					value = self._parse_exp(value)
 				# save value to key
 				config = self._config[key]
 				config.append(value)
 				
-		except FileNotFoundError:
-			logging.critical("Config-file: '" + filename + "' could not found")
-			# TODO: Throw errornotwendig
-			return 1
-		# Check 2 roots exist
+		except FileNotFoundError as e:
+			log_and_raise("Config-file: '" + path + "' does not exist", e)
+		
+		except PermissionError as e:
+			log_and_raise("No permission on config-file: '" + path + "'", e)
+			
+		# Check if 2 roots exist
 		if len(self._config['root']) != 2:
-			logging.critical("Config-file: '" + filename + "' need to had 2 root keys")
-			# TODO: Throw error
-			return 1
-		return 0
+			log_and_raise("Config-file: '" + path + "' need to had 2 root keys", e)
 	
 	@property
 	def roots(self):
@@ -420,20 +452,26 @@ class config(object):
 
 # Config logging
 # Logging to file
-logging.basicConfig(level=logging.DEBUG, filename='2sync.log', filemode='w')
+logging.basicConfig(level=logging.INFO, filename='2sync.log', filemode='a', format='%(levelname)s: %(asctime)s - 2sync - %(message)s')
 # define a Handler for sys.stderr and add it
 console = logging.StreamHandler()
 console.setLevel(logging.WARNING)
 logging.getLogger('').addHandler(console)
 
-config = config()
-if config.parse('config') != 0:
-	print("Error: Config file has error")
+try:
+	config = config('config')
+except ExitError:
 	exit()
-
-sync = sync(config.roots)
-sync.find_changes(config)
-
-sync.do_action()
+except Exception as e:
+	logging.critical("Unknown error", e)
+	
+try:
+	sync = sync(config.roots)
+	sync.find_changes(config)
+	sync.do_action()
+except ExitError:
+	exit()
+except Exception as e:
+	logging.critical("Unknown error", e)
 
 logging.info("Exit program")
