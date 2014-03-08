@@ -32,3 +32,4 @@ ToDo:
 - Add support for paths in config
 - Add support for remote paths over ssh
 - Create backups before files deleted or overwritten
+- Add command-line options
