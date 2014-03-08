@@ -2,6 +2,7 @@
 import os
 import pickle
 import shutil
+import logging
 
 class sync():
 	class data():
@@ -22,7 +23,7 @@ class sync():
 		self.copy = []
 		self.remove = []
 	
-	def __load_data(self):
+	def _load_data(self):
 		try:
 			f = open('folders', 'rb')
 		except FileNotFoundError:
@@ -39,22 +40,22 @@ class sync():
 			self.files = pickle.load(f)
 			f.close()
 			
-	def __save_data(self):
+	def _save_data(self):
 		# TODO: Add errorhandling
 		with open('folders', 'wb') as f: 
 			pickle.dump(self.folders, f)
 		with open('files', 'wb') as f:
 			pickle.dump(self.files, f)
 			
-	def __stat(self, file):
+	def _stat(self, file):
 		# TODO: Add FileNotFoundError
 		return oct(os.lstat(file).st_mode)[-3:]
 		
-	def __moddate(self, file):
+	def _moddate(self, file):
 		# TODO: Add FileNotFoundError
 		return os.lstat(file).st_mtime
 	
-	def __test_string(self, parsed_filters, string):
+	def _test_string(self, parsed_filters, string):
 		for (pre, post, filters) in parsed_filters:
 			stat = 1
 			str_pos = 0
@@ -79,7 +80,7 @@ class sync():
 				return True
 		return False
 	
-	def __find_files(self, config):
+	def _find_files(self, config):
 		for x in range(len(self.roots)):
 			root = self.roots[x]
 			len_root_path = len(root.path)
@@ -87,31 +88,31 @@ class sync():
 				# if path == root.path:
 					# continue
 				sub_path = path[len_root_path:] + "/"
-				if self.__test_string(config.ignore_not_path, sub_path) == True:
-					root.folders[sub_path] = self.__stat(root.path + sub_path)
+				if self._test_string(config.ignore_not_path, sub_path) == True:
+					root.folders[sub_path] = self._stat(root.path + sub_path)
 					for file in files:
 						file = sub_path + file
-						root.files[file] = (self.__stat(root.path + file), self.__moddate(root.path + file))
+						root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
 					continue
 			
 				for file in files:
-					if self.__test_string(config.ignore_not_file, file) == True:
+					if self._test_string(config.ignore_not_file, file) == True:
 						file = sub_path + file
-						root.files[file] = (self.__stat(root.path + file), self.__moddate(root.path + file))
+						root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
 						continue
-					if self.__test_string(config.ignore_file, file) == True:
+					if self._test_string(config.ignore_file, file) == True:
 						continue
 					file = sub_path + file
-					root.files[file] = (self.__stat(root.path + file), self.__moddate(root.path + file))
+					root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
 					
-				if self.__test_string(config.ignore_path, sub_path) == True:
+				if self._test_string(config.ignore_path, sub_path) == True:
 					continue
 				
-				root.folders[sub_path] = self.__stat(root.path + sub_path)
+				root.folders[sub_path] = self._stat(root.path + sub_path)
 				
 	def find_changes(self, config):
-		self.__load_data()
-		self.__find_files(config)
+		self._load_data()
+		self._find_files(config)
 		for x in range(len(self.roots)):
 			root = self.roots[x]
 			root.changed_files = set(self.files) ^ set([(x, y) for x, y in root.files.items()])
@@ -207,7 +208,7 @@ class sync():
 					os.mkdir(dst_root + sub_path)
 				print('Update ' + dst_root + sub_path + ' with data from ' + src_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
-				self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path] + [(sub_path, self.__stat(src_root + sub_path))]
+				self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path] + [(sub_path, self._stat(src_root + sub_path))]
 				
 		for x in self.copy:
 			(sub_path, src_root, dst_root, file_folder) = x
@@ -215,7 +216,7 @@ class sync():
 				print('Copy: ' + src_root + sub_path + ' to ' + dst_root + sub_path)
 				shutil.copy(src_root + sub_path, dst_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
-				self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path] + [(sub_path, (self.__stat(src_root + sub_path), self.__moddate(src_root + sub_path)))]
+				self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path] + [(sub_path, (self._stat(src_root + sub_path), self._moddate(src_root + sub_path)))]
 		
 		self.remove = list(self.remove)
 		self.remove.sort(reverse=True)
@@ -231,20 +232,21 @@ class sync():
 			os.rmdir(dst_root + sub_path)
 			self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path]
 			
-		self.__save_data()
+		self._save_data()
 		
-class config():
+class config(object):
 	def __init__(self):
-		self.__keys = ['root']
-		self.__parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
-		self.__config = dict()
+		self._keys = ['root']
+		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
+		self._config = dict()
 		
-		for key in (self.__keys + self.__parse_keys): 
-			self.__config[key] = []
+		for key in (self._keys + self._parse_keys): 
+			self._config[key] = []
+			
+		#logging.debug()
 	
-	def __parse_exp(self, value):
-		pre = 0
-		post = 0
+	def _parse_exp(self, value):
+		pre, post = 0, 0
 		if value[:1] == "*":
 			pre = 1
 			value = value[1:]
@@ -267,44 +269,44 @@ class config():
 				# remove whitespaces
 				key = key.strip()
 				value = value.strip()
-				if not key in (self.__keys + self.__parse_keys):
+				if not key in (self._keys + self._parse_keys):
 					print("Error: '" + key + "' is not a valid key")
 					return 1
-				if key in self.__parse_keys:
-					value = self.__parse_exp(value)
+				if key in self._parse_keys:
+					value = self._parse_exp(value)
 				# save value to key
-				config = self.__config[key]
+				config = self._config[key]
 				config.append(value)
 				
 		except FileNotFoundError:
 			print("Config file '" + path + "' could not found") # TODO: create a real error message
 			return 1
 		# Check 2 roots exist
-		if len(self.__config['root']) != 2:
-			print(self.__config['root'])
+		if len(self._config['root']) != 2:
+			print(self._config['root'])
 			print("The config file has not 2 root keys")
 			return 1
 		return 0
 	
 	@property
 	def roots(self):
-		return self.__config['root']
+		return self._config['root']
 	
 	@property
 	def ignore_file(self): 
-		return self.__config['ignore file']
+		return self._config['ignore file']
 	
 	@property
 	def ignore_not_file(self):
-		return self.__config['ignore not file']
+		return self._config['ignore not file']
 	
 	@property
 	def ignore_path(self):
-		return self.__config['ignore path']
+		return self._config['ignore path']
 	
 	@property
 	def ignore_not_path(self):
-		return self.__config['ignore not path']
+		return self._config['ignore not path']
 
 config = config()
 if config.parse('config') != 0:
