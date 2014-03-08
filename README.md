@@ -15,14 +15,15 @@ Maybe you like the other tool. Have a look at unison and/or git-annex
 
 Depends: python3
 
-#Usage:
-#```
-#2sync [OPTION] NAME
-#OPTION:
-#	--create	create a new config
-#	--delete	delete a existing config
-#```
-
+<!--
+Usage:
+```
+2sync [OPTION] NAME
+OPTION:
+	--create	create a new config
+	--delete	delete a existing config
+```
+-->
 
 ToDo:
 ===
