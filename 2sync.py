@@ -236,16 +236,18 @@ class sync():
 		
 class config(object):
 	def __init__(self):
+		logging.debug("Create config object")
+		
 		self._keys = ['root']
 		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
 		self._config = dict()
 		
 		for key in (self._keys + self._parse_keys): 
 			self._config[key] = []
-			
-		#logging.debug()
 	
 	def _parse_exp(self, value):
+		logging.debug("Parse expression: '" + value + "'")
+		
 		pre, post = 0, 0
 		if value[:1] == "*":
 			pre = 1
@@ -270,7 +272,7 @@ class config(object):
 				key = key.strip()
 				value = value.strip()
 				if not key in (self._keys + self._parse_keys):
-					print("Error: '" + key + "' is not a valid key")
+					logging.error("Invalid key: '" + key + "' in config-file: '" + filename + "'")
 					return 1
 				if key in self._parse_keys:
 					value = self._parse_exp(value)
@@ -279,12 +281,13 @@ class config(object):
 				config.append(value)
 				
 		except FileNotFoundError:
-			print("Config file '" + path + "' could not found") # TODO: create a real error message
+			logging.critical("Config-file: '" + filename + "' could not found")
+			# TODO: Throw error
 			return 1
 		# Check 2 roots exist
 		if len(self._config['root']) != 2:
-			print(self._config['root'])
-			print("The config file has not 2 root keys")
+			logging.critical("Config-file: '" + filename + "' need to had 2 root keys")
+			# TODO: Throw error
 			return 1
 		return 0
 	
@@ -307,6 +310,13 @@ class config(object):
 	@property
 	def ignore_not_path(self):
 		return self._config['ignore not path']
+
+# Config logging
+logging.basicConfig(level=logging.DEBUG, filename='2sync.log', filemode='w')
+# define a Handler for sys.stderr
+console = logging.StreamHandler()
+console.setLevel(logging.WARNING)
+logging.getLogger('').addHandler(console)
 
 config = config()
 if config.parse('config') != 0:
