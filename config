@@ -1,0 +1,28 @@
+#This ist just an example config. Not all configs work at the moment
+#include config_own
+
+# Config for sync-Script
+#root = /home/$USER
+root = /home/tobias/test
+root = /home/tobias/test2
+#>root = ssh://synccenter//videos/syncdata/$USER_SHORT
+
+#path = Musik
+#path = Bilder
+#path = Dokumente
+#path = Videos
+#path = Programming
+#path = test
+
+ignore file = temp.*
+ignore file = *~
+ignore file = .*~
+ignore file = *.tmp
+ignore file = .bak.*
+ignore path = *Bilder*
+ignore path = */.git/*
+ignore path = */share/*
+ignore path = */tmp*
+ignore path = */temp/*
+ignore path = */Backup*
+ignore not file = *.pdf

@@ -1,5 +1,0 @@
-- Add support for resolve conflicts (and deeper inspection)
-- Add support for file filter (include/exclude files/folders)
-- Add support for remote paths over ssh
-- Check the schema from the database (maybe it changed)
-- Create backups before files deleted or overwritten
