@@ -191,10 +191,12 @@ class sync():
 			while True:
 				try:
 					action = int(input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master "))
-				except:
-					print("Wrong input. Please insert a correct input")
+				except KeyboardInterrupt:
+					print()
 					exit()
-					continue
+				except:
+					action = -1
+					pass
 				
 				if action == 0:
 					new_file_conflict.add(sub_path)
@@ -205,6 +207,8 @@ class sync():
 				elif action == 2:
 					self.roots[0].changed_files.remove(sub_path)
 					break
+				
+				print("Wrong input. Please insert a correct input")
 				
 		self.file_conflicts = new_file_conflict
 		
@@ -268,6 +272,7 @@ class sync():
 					os.mkdir(dst_root + sub_path)
 				print('Update ' + dst_root + sub_path + ' with data from ' + src_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
+				# Update self.folders
 				self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path] + [(sub_path, self._stat(src_root + sub_path))]
 				
 		for x in self.copy:
@@ -276,6 +281,7 @@ class sync():
 				print('Copy: ' + src_root + sub_path + ' to ' + dst_root + sub_path)
 				shutil.copy(src_root + sub_path, dst_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
+				# Update self.files
 				self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path] + [(sub_path, (self._stat(src_root + sub_path), self._moddate(src_root + sub_path)))]
 		
 		self.remove = list(self.remove)
@@ -284,12 +290,14 @@ class sync():
 			(dst_root, sub_path) = x
 			print('Remove file: ' + dst_root + sub_path)
 			os.remove(dst_root + sub_path)
+			# Update self.files
 			self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path]
 			
 		for x in [(dst_root, sub_path) for (sub_path, dst_root, x) in self.remove if x == 'folder']:
 			(dst_root, sub_path) = x
 			print('Remove folder: ' + dst_root + sub_path)
 			os.rmdir(dst_root + sub_path)
+			# Update self.folders
 			self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path]
 			
 		self._save_data()
@@ -366,7 +374,7 @@ class config(object):
 				
 		except FileNotFoundError:
 			logging.critical("Config-file: '" + filename + "' could not found")
-			# TODO: Throw error
+			# TODO: Throw errornotwendig
 			return 1
 		# Check 2 roots exist
 		if len(self._config['root']) != 2:
@@ -411,8 +419,9 @@ class config(object):
 		return self._config['ignore not path']
 
 # Config logging
+# Logging to file
 logging.basicConfig(level=logging.DEBUG, filename='2sync.log', filemode='w')
-# define a Handler for sys.stderr
+# define a Handler for sys.stderr and add it
 console = logging.StreamHandler()
 console.setLevel(logging.WARNING)
 logging.getLogger('').addHandler(console)
@@ -426,3 +435,5 @@ sync = sync(config.roots)
 sync.find_changes(config)
 
 sync.do_action()
+
+logging.info("Exit program")
