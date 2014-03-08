@@ -5,7 +5,15 @@ import shutil
 import logging
 
 class sync():
+	"""
+	Main class for the syncronisation
+	"""
 	class data():
+		"""
+		A class for a root
+		
+		Holds the root specific data's
+		"""
 		def __init__(self, path):
 			self.path = path
 			self.files = dict()
@@ -24,6 +32,9 @@ class sync():
 		self.remove = []
 	
 	def _load_data(self):
+		"""
+		Loads the saved information about synchronised files and folders
+		"""
 		try:
 			f = open('folders', 'rb')
 		except FileNotFoundError:
@@ -43,6 +54,9 @@ class sync():
 			f.close()
 			
 	def _save_data(self):
+		"""
+		Save the informations about synchronised files and folders
+		"""
 		try:
 			with open('folders', 'wb') as f: 
 				pickle.dump(self.folders, f)
@@ -58,18 +72,29 @@ class sync():
 			pass # TODO: Throw Exception
 			
 	def _stat(self, file):
+		"""
+		Return the permissions for a file or folder
+		"""
 		try:
 			return oct(os.lstat(file).st_mode)[-3:]
 		except:
 			logging.error("Could not read stat from: '" + file + "'")
 		
 	def _moddate(self, file):
+		"""
+		Return the last modification date from a file or folder
+		"""
 		try:
 			return os.lstat(file).st_mtime
 		except:
 			logging.error("Could not read moddate from: '" + file + "'")
 	
 	def _test_string(self, parsed_filters, string):
+		"""
+		Test a string with the ignore filters
+		
+		Returns True if the file/folder should be synchronised or False if not
+		"""
 		for (pre, post, filters) in parsed_filters:
 			stat = 1
 			str_pos = 0
@@ -95,6 +120,11 @@ class sync():
 		return False
 	
 	def _find_files(self, config):
+		"""
+		Read files/folders from root's
+		
+		If file/folder match the filters it will be saved with last modfication date and permissions
+		"""
 		for x in range(len(self.roots)):
 			root = self.roots[x]
 			len_root_path = len(root.path)
@@ -125,6 +155,15 @@ class sync():
 				root.folders[sub_path] = self._stat(root.path + sub_path)
 				
 	def find_changes(self, config):
+		"""
+		Prepare the changed files for the synchronisation
+		
+		Test if files/folders should be syncronised
+		Compare it with the saved informations
+		Check if conflicts exist (file/folder changed on both root's)
+		Ask user for conflict solution
+		Save the necessary actions  
+		"""
 		self._load_data()
 		self._find_files(config)
 		for x in range(len(self.roots)):
@@ -216,6 +255,9 @@ class sync():
 				analyse_action(filename, root.path, self.roots[1-x].path, 'folder', self.folder_conflicts)
 	
 	def do_action(self):
+		"""
+		Execute the syncronisation
+		"""
 		self.copy = list(self.copy)
 		self.copy.sort()
 		for x in self.copy:
@@ -253,6 +295,19 @@ class sync():
 		self._save_data()
 		
 class config(object):
+	"""
+	The config object open a config file an prepare it for usage
+	
+	After parsing a config file. The Data can be used for the program.
+	The format ist spezialised for this program. It has the following keys:
+		root: Is a path for the folders who sould synchronised (has to set 2 times: "source" and "target")
+		ignore file: which files has to be ignored for synchronisation
+		ignore path: which directories has to be ignored for synchronisation
+		ignore not file: files who sould synchronised, but match ignore file
+		ignore not path: directory who sould synchronised, but match ignore path
+	root has to be a absolutley path to a directory
+	All ignore-keys can use * at the value as placeholder for everything
+	"""
 	def __init__(self):
 		logging.debug("Create config object")
 		
@@ -264,6 +319,11 @@ class config(object):
 			self._config[key] = []
 	
 	def _parse_exp(self, value):
+		"""
+		Parses the "ignore" values
+		
+		Is used to parse the ignore values. After parsing it can be used with "test_string"
+		"""
 		logging.debug("Parse expression: '" + value + "'")
 		
 		pre, post = 0, 0
@@ -276,6 +336,11 @@ class config(object):
 		return (pre, post, value.split("*"))
 	
 	def parse(self, path):
+		"""
+		Parse a config-file
+		
+		Parse the given config-file an test if the config-file match the specifications  
+		"""
 		try:
 			# Open config file and parse content.
 			for line in open(path, 'r'):
@@ -312,22 +377,37 @@ class config(object):
 	
 	@property
 	def roots(self):
+		"""
+		Returns a list with the roots 
+		"""
 		return self._config['root']
 	
 	@property
-	def ignore_file(self): 
+	def ignore_file(self):
+		"""
+		Returns a list with the parsed 'ignore file' values
+		"""
 		return self._config['ignore file']
 	
 	@property
 	def ignore_not_file(self):
+		"""
+		Returns a list with the parsed 'ignore not file' values
+		"""
 		return self._config['ignore not file']
 	
 	@property
 	def ignore_path(self):
+		"""
+		Returns a list with the parsed 'ignore path' values
+		"""
 		return self._config['ignore path']
 	
 	@property
 	def ignore_not_path(self):
+		"""
+		Returns a list with the parsed 'ignore not path' values
+		"""
 		return self._config['ignore not path']
 
 # Config logging
