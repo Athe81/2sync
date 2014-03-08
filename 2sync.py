@@ -4,6 +4,7 @@ import sys
 import pickle
 import shutil
 import logging
+import argparse
 
 def log_and_raise(msg, e=None):
 	"""
@@ -214,10 +215,6 @@ class sync():
 			while True:
 				try:
 					action = int(input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master "))
-				except KeyboardInterrupt:
-					print()
-					logging.critical("Exit programm while KeyboardInterrupt (ctrl + c)")
-					exit()
 				except ValueError:
 					action = -1
 				
@@ -450,6 +447,10 @@ class config(object):
 		"""
 		return self._config['ignore not path']
 
+parser = argparse.ArgumentParser(description='2-way syncronisation for folders')
+parser.add_argument('config', help='name of the configuration file')
+args = parser.parse_args()
+
 # Config logging
 # Logging to file
 logging.basicConfig(level=logging.INFO, filename='2sync.log', filemode='a', format='%(levelname)s: %(asctime)s - 2sync - %(message)s')
@@ -459,19 +460,16 @@ console.setLevel(logging.WARNING)
 logging.getLogger('').addHandler(console)
 
 try:
-	config = config('config')
-except ExitError:
-	exit()
-except Exception as e:
-	logging.critical("Unknown error", e)
-	
-try:
+	config = config(args.config)
 	sync = sync(config.roots)
 	sync.find_changes(config)
 	sync.do_action()
 except ExitError:
-	exit()
+	pass
+except KeyboardInterrupt:
+	print()
+	logging.critical("Exit programm while KeyboardInterrupt (ctrl + c)")
 except Exception as e:
 	logging.critical("Unknown error", e)
-
+	
 logging.info("Exit program")
