@@ -27,7 +27,8 @@ class sync():
 		try:
 			f = open('folders', 'rb')
 		except FileNotFoundError:
-			pass # TODO: Add Errorhandling
+			logging.error("Could not load data from: '" + 'folders' + "' not found")
+			pass # TODO: Throw Exception
 		else:
 			self.folders = pickle.load(f)
 			f.close()
@@ -35,25 +36,38 @@ class sync():
 		try:
 			f = open('files', 'rb')
 		except FileNotFoundError:
-			pass # TODO: Add Errorhandling
+			logging.error("Could not load data from: '" + 'files' + "' not found")
+			pass # TODO: Throw Exception
 		else:
 			self.files = pickle.load(f)
 			f.close()
 			
 	def _save_data(self):
-		# TODO: Add errorhandling
-		with open('folders', 'wb') as f: 
-			pickle.dump(self.folders, f)
-		with open('files', 'wb') as f:
-			pickle.dump(self.files, f)
+		try:
+			with open('folders', 'wb') as f: 
+				pickle.dump(self.folders, f)
+		except:
+			logging.error("Could not save data to: '" + 'folders' + "'")
+			pass # TODO: Throw Exception
+		
+		try:
+			with open('files', 'wb') as f:
+				pickle.dump(self.files, f)
+		except:
+			logging.error("Could not save data to: '" + 'files' + "'")
+			pass # TODO: Throw Exception
 			
 	def _stat(self, file):
-		# TODO: Add FileNotFoundError
-		return oct(os.lstat(file).st_mode)[-3:]
+		try:
+			return oct(os.lstat(file).st_mode)[-3:]
+		except:
+			logging.error("Could not read stat from: '" + file + "'")
 		
 	def _moddate(self, file):
-		# TODO: Add FileNotFoundError
-		return os.lstat(file).st_mtime
+		try:
+			return os.lstat(file).st_mtime
+		except:
+			logging.error("Could not read moddate from: '" + file + "'")
 	
 	def _test_string(self, parsed_filters, string):
 		for (pre, post, filters) in parsed_filters:
@@ -136,9 +150,13 @@ class sync():
 				else:
 					print("File: " + self.roots[x].path + sub_path + " deleted")
 			while True:
-				action = input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master ")
-				try: action = int(action)
-				except: action = -1
+				try:
+					action = int(input("0: ignore, 1: " + self.roots[0].path + sub_path + " is master, 2: " + self.roots[1].path + sub_path + " is master "))
+				except:
+					print("Wrong input. Please insert a correct input")
+					exit()
+					continue
+				
 				if action == 0:
 					new_file_conflict.add(sub_path)
 					break
@@ -148,7 +166,7 @@ class sync():
 				elif action == 2:
 					self.roots[0].changed_files.remove(sub_path)
 					break
-				print("Wrong input. Please insert a correct input")
+				
 		self.file_conflicts = new_file_conflict
 		
 		new_folder_conflict = set()
@@ -273,6 +291,7 @@ class config(object):
 				value = value.strip()
 				if not key in (self._keys + self._parse_keys):
 					logging.error("Invalid key: '" + key + "' in config-file: '" + filename + "'")
+					# TODO: Throw error
 					return 1
 				if key in self._parse_keys:
 					value = self._parse_exp(value)
