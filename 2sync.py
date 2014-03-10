@@ -162,32 +162,43 @@ class sync():
 		
 		If file/folder match the filters it will be saved with last modfication date and permissions
 		"""
+		def _test_and_add(folder, files):
+			"""
+			Test files and folder with ignore filters and returns the files and folder who sould synchronised
+			"""
+			sub_path = path[len_root_path:] + "/"
+			# Add files and folders if 'ignore not path' match to folder
+			if test_string(config.ignore_not_path, sub_path) == True:
+				root.folders[sub_path] = self._stat(root.path + sub_path)
+				for file in files:
+					file = sub_path + file
+					root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
+				return
+			
+			# Continue if 'ignore path' match does not match file
+			if test_string(config.ignore_path, sub_path) == True:
+				return
+			# Add file if 'ignore path' not match
+			root.folders[sub_path] = self._stat(root.path + sub_path)
+			
+			for file in files:
+				# Add file if 'ignore not file' match the filename
+				if test_string(config.ignore_not_file, file) == True:
+					file = sub_path + file
+					root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
+					return
+				# Ignore file if the 'ignore file' match the filename
+				if test_string(config.ignore_file, file) == True:
+					return
+				# Add file if 'ignore not file' and 'ignore file' not matched
+				file = sub_path + file
+				root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
+
 		for x in range(len(self.roots)):
 			root = self.roots[x]
 			len_root_path = len(root.path)
 			for path, _, files in os.walk(root.path, followlinks=False):
-				sub_path = path[len_root_path:] + "/"
-				if test_string(config.ignore_not_path, sub_path) == True:
-					root.folders[sub_path] = self._stat(root.path + sub_path)
-					for file in files:
-						file = sub_path + file
-						root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
-					continue
-			
-				for file in files:
-					if test_string(config.ignore_not_file, file) == True:
-						file = sub_path + file
-						root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
-						continue
-					if test_string(config.ignore_file, file) == True:
-						continue
-					file = sub_path + file
-					root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
-					
-				if test_string(config.ignore_path, sub_path) == True:
-					continue
-				
-				root.folders[sub_path] = self._stat(root.path + sub_path)
+				_test_and_add(path, files)
 				
 	def _find_changes(self, config):
 		"""
