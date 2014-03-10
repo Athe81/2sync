@@ -5,6 +5,7 @@ import pickle
 import shutil
 import logging
 import argparse
+import hashlib
 
 def log_and_raise(msg, e=None):
 	"""
@@ -30,6 +31,36 @@ class ExitError(Exception):
 	def __str__(self):
 		return repr(self.value)
 
+def test_string(parsed_filters, string):
+	"""
+	Test a string with the given, parsed filters
+	
+	Returns True if the string match or False if not
+	"""
+	for (pre, post, filters) in parsed_filters:
+		stat = 1
+		str_pos = 0
+		sum_filters = len(filters)
+		for pos in range(sum_filters):
+			if sum_filters == 1 and pre == 0 and post == 0 and string == filters[0]:
+				return True
+			if pre == 0 and pos == 0 and filters[pos] != string[:len(filters[pos])]:
+				stat = 0
+				break
+			if post == 0 and pos == sum_filters-1 and filters[pos] != string[len(filters[pos])*-1:]:
+				stat = 0
+				break
+			if sum_filters == 1 and (pre == 0 or post == 0):
+				return True
+			str_pos = string[str_pos:].find(filters[pos])
+			if str_pos == -1:
+				stat = 0
+				break
+			str_pos += len(filters[pos])
+		if stat == 1:
+			return True
+	return False
+
 class sync():
 	"""
 	Main class for the syncronisation
@@ -46,7 +77,8 @@ class sync():
 			self.folders = dict()
 			self.changed_files = set()
 			self.changed_folders = set()
-	def __init__(self, roots):
+	def __init__(self, config):
+		roots = config.roots
 		self.roots = []
 		self.file_conflicts = set()
 		self.folder_conflicts = set()
@@ -56,6 +88,15 @@ class sync():
 		self.folders = []
 		self.copy = []
 		self.remove = []
+		
+		self._load_data()
+		if config.config_changed == True:
+			self.files = [(x, y) for x, y in self.files if test_string(config.ignore_file, x[1:]) == False]
+			self.folders = [(x, y) for x, y in self.folders if test_string(config.ignore_path, x[1:]) == False]
+			self._save_data
+			config._save_config_hash()
+			
+		self._find_changes(config)
 	
 	def _load_data(self):
 		"""
@@ -115,36 +156,6 @@ class sync():
 		except Exception as e:
 			log_and_raise("Could not read moddate from: '" + file + "'", e)
 	
-	def _test_string(self, parsed_filters, string):
-		"""
-		Test a string with the ignore filters
-		
-		Returns True if the file/folder should be synchronised or False if not
-		"""
-		for (pre, post, filters) in parsed_filters:
-			stat = 1
-			str_pos = 0
-			sum_filters = len(filters)
-			for pos in range(sum_filters):
-				if sum_filters == 1 and pre == 0 and post == 0 and string == filters[0]:
-					return True
-				if pre == 0 and pos == 0 and filters[pos] != string[:len(filters[pos])]:
-					stat = 0
-					break
-				if post == 0 and pos == sum_filters-1 and filters[pos] != string[len(filters[pos])*-1:]:
-					stat = 0
-					break
-				if sum_filters == 1 and (pre == 0 or post == 0):
-					return True
-				str_pos = string[str_pos:].find(filters[pos])
-				if str_pos == -1:
-					stat = 0
-					break
-				str_pos += len(filters[pos])
-			if stat == 1:
-				return True
-		return False
-	
 	def _find_files(self, config):
 		"""
 		Read files/folders from root's
@@ -156,7 +167,7 @@ class sync():
 			len_root_path = len(root.path)
 			for path, _, files in os.walk(root.path, followlinks=False):
 				sub_path = path[len_root_path:] + "/"
-				if self._test_string(config.ignore_not_path, sub_path) == True:
+				if test_string(config.ignore_not_path, sub_path) == True:
 					root.folders[sub_path] = self._stat(root.path + sub_path)
 					for file in files:
 						file = sub_path + file
@@ -164,21 +175,21 @@ class sync():
 					continue
 			
 				for file in files:
-					if self._test_string(config.ignore_not_file, file) == True:
+					if test_string(config.ignore_not_file, file) == True:
 						file = sub_path + file
 						root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
 						continue
-					if self._test_string(config.ignore_file, file) == True:
+					if test_string(config.ignore_file, file) == True:
 						continue
 					file = sub_path + file
 					root.files[file] = (self._stat(root.path + file), self._moddate(root.path + file))
 					
-				if self._test_string(config.ignore_path, sub_path) == True:
+				if test_string(config.ignore_path, sub_path) == True:
 					continue
 				
 				root.folders[sub_path] = self._stat(root.path + sub_path)
 				
-	def find_changes(self, config):
+	def _find_changes(self, config):
 		"""
 		Prepare the changed files for the synchronisation
 		
@@ -188,7 +199,6 @@ class sync():
 		Ask user for conflict solution
 		Save the necessary actions  
 		"""
-		self._load_data()
 		self._find_files(config)
 		for x in range(len(self.roots)):
 			root = self.roots[x]
@@ -204,7 +214,7 @@ class sync():
 		if len(self.file_conflicts) != 0 or len(self.folder_conflicts) != 0:
 			print("Please solve conflicts:")
 
-		new_file_conflict = set()
+		_file_conflicts = set()
 		for sub_path in self.file_conflicts:
 			for x in range(len(self.roots)):
 				if sub_path in self.roots[x].files.keys():
@@ -219,7 +229,7 @@ class sync():
 					action = -1
 				
 				if action == 0:
-					new_file_conflict.add(sub_path)
+					_file_conflicts.add(sub_path)
 					break
 				elif action == 1:
 					self.roots[1].changed_files.remove(sub_path)
@@ -230,7 +240,7 @@ class sync():
 				
 				print("Wrong input. Please insert a correct input")
 				
-		self.file_conflicts = new_file_conflict
+		self.file_conflicts = _file_conflicts
 		
 		new_folder_conflict = set()
 		for sub_path in self.folder_conflicts:
@@ -344,17 +354,64 @@ class config(object):
 	root has to be a absolutley path to a directory
 	All ignore-keys can use * at the value as placeholder for everything
 	"""
-	def __init__(self, config):
+	def __init__(self, configname):
 		logging.info("Create config object")
 		
 		self._keys = ['root']
 		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
 		self._config = dict()
+		self._configname = configname
+		self._hexdigest = ""
+		self.configname_hash = ".hash_" + configname
 		
-		for key in (self._keys + self._parse_keys): 
+		for key in (self._keys + self._parse_keys):
 			self._config[key] = []
 		
-		self._parse(config)
+		self._config_changed = self._config_changed(self._configname)
+		self._parse(self._configname)
+		
+	def _config_changed(self, configname):
+		"""
+		Create sha1 hash for config. Compare it with the existing sha1 hash for config. Save the new hash.
+		"""
+		_config_hash = hashlib.sha1()
+		
+		try:
+			f = open(configname, 'rb')
+			_config_hash.update(f.read())
+			self._hexdigest = _config_hash.hexdigest()
+		except FileNotFoundError as e:
+			log_and_raise("Config-file: '" + configname + "' does not exist", e)
+		except PermissionError as e:
+			log_and_raise("No permission to config-file: '" + configname + "'", e)
+		else:
+			f.close()
+		
+		saved_hash = ''
+		try:
+			f = open(self.configname_hash, 'r')
+		except FileNotFoundError:
+			logging.info("No hash key for config-file: '" + configname + "'")
+		except PermissionError as e:
+			log_and_raise("No permission to read hash-file: '" + self.configname_hash + "'", e)
+			pass
+		else:
+			saved_hash = f.read()
+			saved_hash[:-1]
+			f.close()
+		
+		if self._hexdigest == saved_hash:
+			return False
+		return True
+	
+	def _save_config_hash(self):
+		try:
+			f = open(self.configname_hash, 'w')
+			f.write(self._hexdigest)
+		except PermissionError as e:
+			log_and_raise("No permission to write hash-file: '" + self.configname_hash + "'", e)
+		else:
+			f.close()
 	
 	def _parse_exp(self, value):
 		"""
@@ -395,7 +452,7 @@ class config(object):
 				key = key.strip()
 				value = value.strip()
 				if not key in (self._keys + self._parse_keys):
-					log_and_raise("Invalid key: '" + key + "' in config-file: '" + filename + "'")
+					log_and_raise("Invalid key: '" + key + "' in config-file: '" + path + "'")
 				if key in self._parse_keys:
 					value = self._parse_exp(value)
 				# save value to key
@@ -446,6 +503,20 @@ class config(object):
 		Returns a list with the parsed 'ignore not path' values
 		"""
 		return self._config['ignore not path']
+	
+	@property
+	def config_changed(self):
+		"""
+		Returns True if the config has changed or is new. Otherwise it returns False
+		"""
+		return self._config_changed
+	
+	@property
+	def configname(self):
+		"""
+		Returns the config name
+		"""
+		return self._configname
 
 parser = argparse.ArgumentParser(description='2-way syncronisation for folders')
 parser.add_argument('config', help='name of the configuration file')
@@ -461,8 +532,8 @@ logging.getLogger('').addHandler(console)
 
 try:
 	config = config(args.config)
-	sync = sync(config.roots)
-	sync.find_changes(config)
+	sync = sync(config)
+#	sync.find_changes(config)
 	sync.do_action()
 except ExitError:
 	pass

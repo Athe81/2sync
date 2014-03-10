@@ -1,4 +1,4 @@
-#This ist just an example config. Not all configs work at the moment
+# This ist just an example config. Not all configs work at the moment
 
 # include is not implemented
 #include config_own
@@ -35,3 +35,4 @@ ignore path = */tmp*
 ignore path = */temp/*
 ignore path = */Backup*
 ignore not file = *.pdf
+
