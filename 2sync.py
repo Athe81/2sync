@@ -102,14 +102,18 @@ class BasicData(object):
 	def get_folder(self, folder):
 		return self._folders[folder]
 	
+	def remove_file(self, file):
+		del self._files[file]
+		
+	def remove_folder(self, folder):
+		del self._folders[folder]
+	
 	@property
 	def files(self):
-		# return [(k, v) for k, v in self._files.items()]
 		return self._files
 	
 	@property
 	def folders(self):
-		# return [(k, v) for k, v in self._folders.items()]
 		return self._folders
 
 class PersistenceData(BasicData):
@@ -152,6 +156,14 @@ class PersistenceData(BasicData):
 		
 	def add_folder(self, file, stat):
 		super().add_folder(file, stat)
+		self._save_data()
+		
+	def remove_file(self, file):
+		super().remove_file(file)
+		self._save_data()
+		
+	def remove_folder(self, folder):
+		super().remove_folder(folder)
 		self._save_data()
 
 class FSData(BasicData):
@@ -199,12 +211,9 @@ class sync(object):
 		self.root1 = FSData(config.roots[1])
 		self.file_conflicts = set()
 		self.folder_conflicts = set()
-		self.files = []
-		self.folders = []
 		self.copy = []
 		self.remove = []
 		
-		self._load_data()
 		if config.config_changed == True:
 			self.files = [(x, y) for x, y in self.files if test_string(config.ignore_file, x[1:]) == False]
 			self.folders = [(x, y) for x, y in self.folders if test_string(config.ignore_path, x[1:]) == False]
@@ -212,48 +221,7 @@ class sync(object):
 			config._save_config_hash()
 			
 		self._find_changes(config)
-		# self._find_changes(config)
 	
-	def _load_data(self):
-		"""
-		Loads the saved information about synchronised files and folders
-		"""
-		try:
-			f = open('folders', 'rb')
-		except FileNotFoundError:
-			logging.warn("Could not load data from file: '" + 'folders' + "'. File not found")
-		except PermissionError as e:
-			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
-		else:
-			self.folders = pickle.load(f)
-			f.close()
-
-		try:
-			f = open('files', 'rb')
-		except FileNotFoundError:
-			logging.warn("Could not load data from file: '" + 'files' + "'. File not found")
-		except PermissionError as e:
-			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
-		else:
-			self.files = pickle.load(f)
-			f.close()
-			
-	def _save_data(self):
-		"""
-		Save the informations about synchronised files and folders
-		"""
-		try:
-			with open('folders', 'wb') as f: 
-				pickle.dump(self.folders, f)
-		except :
-			log_and_raise("Could not save data to: '" + 'folders' + "'")
-		
-		try:
-			with open('files', 'wb') as f:
-				pickle.dump(self.files, f)
-		except PermissionError:
-			log_and_raise("Could not save data to: '" + 'files' + "'", e)
-			
 	def _stat(self, file):
 		"""
 		Return the permissions for a file or folder
@@ -336,19 +304,32 @@ class sync(object):
 		self.file_conflicts = self.root0.changed_files & self.root1.changed_files
 		self.folder_conflicts = self.root0.changed_folders & self.root1.changed_folders
 		
-		for file in self.root0.files:
-			self.sync_data.add_file(file, stat=self.root0.get_file(file).stat, moddate=self.root0.get_file(file).moddate)
-		for folder in self.root0.folders:
-			self.sync_data.add_folder(folder, stat=self.root0.get_folder(folder).stat)
-		
-		# for sub_path in self.file_conflicts:
-			# TODO: WORK 
-			# self._inspect_content(sub_path)
+		remove = []
+		for file in self.file_conflicts:
+			if self.root0.get_file(file) == self.root1.get_file(file) and get_hash(self.root0.path + file) == get_hash(self.root1.path + file):
+				remove.append(file)
+		for file in remove:
+			self.root0.changed_files.remove(file)
+			self.root1.changed_files.remove(file)
+			self.file_conflicts.remove(file)
+			self.sync_data.add_file(file, self.root0.get_file(file).stat, self.root0.get_file(file).moddate)
+			
+		remove = []
+		for folder in self.folder_conflicts:
+			if self.root0.get_folder(folder) == self.root1.get_folder(folder):
+				remove.append(folder)
+		for folder in remove:
+			self.root0.changed_folders.remove(folder)
+			self.root1.changed_folders.remove(folder)
+			self.folder_conflicts.remove(folder)
+			self.sync_data.add_folder(folder, self.root0.get_folder(folder).stat)
 		
 		# Solve conflicts
 		if len(self.file_conflicts) != 0 or len(self.folder_conflicts) != 0:
 			print("Please solve conflicts:")
-
+		
+		
+		# TODO: Find out, what changed and just update the changes
 		_file_conflicts = set()
 		for sub_path in self.file_conflicts:
 			for root in (self.root0, self.root1):
@@ -443,7 +424,11 @@ class sync(object):
 				print('Update ' + dst_root + sub_path + ' with data from ' + src_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
 				# Update self.folders
-				self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path] + [(sub_path, self._stat(src_root + sub_path))]
+				if self.root0.path == src_root:
+					root = self.root0
+				else:
+					root = self.root1
+				self.sync_data.add_folder(sub_path, root.get_folder(sub_path).stat)
 				
 		for x in self.copy:
 			(sub_path, src_root, dst_root, file_folder) = x
@@ -452,7 +437,11 @@ class sync(object):
 				shutil.copy(src_root + sub_path, dst_root + sub_path)
 				shutil.copystat(src_root + sub_path, dst_root + sub_path)
 				# Update self.files
-				self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path] + [(sub_path, (self._stat(src_root + sub_path), self._moddate(src_root + sub_path)))]
+				if self.root0.path == src_root:
+					root = self.root0
+				else:
+					root = self.root1
+				self.sync_data.add_file(sub_path, root.get_file(sub_path).stat, root.get_file(sub_path).moddate)
 		
 		self.remove = list(self.remove)
 		self.remove.sort(reverse=True)
@@ -461,16 +450,14 @@ class sync(object):
 			print('Remove file: ' + dst_root + sub_path)
 			os.remove(dst_root + sub_path)
 			# Update self.files
-			self.files = [(file, stat_mod) for (file, stat_mod) in self.files if file != sub_path]
+			self.sync_data.remove_file(sub_path)
 			
 		for x in [(dst_root, sub_path) for (sub_path, dst_root, x) in self.remove if x == 'folder']:
 			(dst_root, sub_path) = x
 			print('Remove folder: ' + dst_root + sub_path)
 			os.rmdir(dst_root + sub_path)
 			# Update self.folders
-			self.folders = [(folder, stat) for (folder, stat) in self.folders if folder != sub_path]
-			
-		self._save_data()
+			self.sync_data.remove_folder(sub_path)
 		
 class config(object):
 	"""
@@ -507,18 +494,8 @@ class config(object):
 		Create sha1 hash for config. Compare it with the existing sha1 hash for config. Save the new hash.
 		"""
 		logging.info("Check if config-file has changed")
-		_config_hash = hashlib.sha1()
 		
-		try:
-			f = open(configname, 'rb')
-			_config_hash.update(f.read())
-			self._hexdigest = _config_hash.hexdigest()
-		except FileNotFoundError as e:
-			log_and_raise("Config-file: '" + configname + "' does not exist", e)
-		except PermissionError as e:
-			log_and_raise("No permission to config-file: '" + configname + "'", e)
-		else:
-			f.close()
+		self._hexdigest = get_hash(configname)
 		
 		saved_hash = ''
 		try:
