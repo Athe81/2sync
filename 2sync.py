@@ -54,32 +54,37 @@ def test_string(parsed_filters, string):
 	
 	Returns True if the string match or False if not
 	"""
-	for (pre, post, filters) in parsed_filters:
+	#for (_, pre, post, filters) in parsed_filters:
+	for filters in parsed_filters:
 		stat = 1
 		str_pos = 0
-		sum_filters = len(filters)
+		sum_filters = len(filters.values)
 		for pos in range(sum_filters):
-			if sum_filters == 1 and pre == 0 and post == 0 and string == filters[0]:
-				logging.debug("'" + string + "' matched filter: '" + str(pre) + ", " + str(post) + ", " + str(filters) + "'")
+			# zero *, string = filter
+			if sum_filters == 1 and filters.preglob == 0 and filters.postglob == 0 and string == filters.values[0]:
+				logging.debug("'" + string + "' matched filter: '" + str(filters.full) + "'")
 				return True
-			if pre == 0 and pos == 0 and filters[pos] != string[:len(filters[pos])]:
+			# no pre *, first pos, filter != string
+			if filters.preglob == 0 and pos == 0 and filters.values[pos] != string[:len(filters.values[pos])]:
 				stat = 0
 				break
-			if post == 0 and pos == sum_filters-1 and filters[pos] != string[len(filters[pos])*-1:]:
+			# no post *, last pos, filter != string
+			if filters.postglob == 0 and pos == sum_filters-1 and filters.values[pos] != string[len(filters.values[pos])*-1:]:
 				stat = 0
 				break
-			if sum_filters == 1 and (pre == 0 or post == 0):
-				logging.debug("'" + string + "' matched filter: '" + str(pre) + ", " + str(post) + ", " + str(filters) + "'")
+			# one filter, no pre or post *
+			if sum_filters == 1 and (filters.preglob == 0 or filters.postglob == 0):
+				logging.debug("'" + string + "' matched filter: '" + str(filters.full) + "'")
 				return True
-			str_pos = string[str_pos:].find(filters[pos])
-			if str_pos == -1:
+			str_pos2 = string[str_pos:].find(filters.values[pos])
+			if str_pos2 == -1:
 				stat = 0
 				break
-			str_pos += len(filters[pos])
+			str_pos += len(filters.values[pos])
 		if stat == 1:
-			logging.debug("'" + string + "' matched filter: '" + str(pre) + ", " + str(post) + ", " + str(filters) + "'")
+			logging.debug("'" + string + "' matched filter: '" + str(filters.full) + "'")
 			return True
-		logging.debug("'" + string + "' doesn't matched filter: '" + str(pre) + ", " + str(post) + ", " + str(filters) + "'")
+		logging.debug("'" + string + "' doesn't matched filter: '" + str(filters.full) + "'")
 	return False
 
 class BasicData(object):
@@ -91,9 +96,11 @@ class BasicData(object):
 		self._folders = dict()
 		
 	def add_file(self, file, stat, moddate, size):
+		logging.info("Add file '" + file + "' for sync")
 		self._files[file] = self._filetype(stat, moddate, size)
 		
 	def add_folder(self, folder, stat):
+		logging.info("Add folder '" + folder + "' for sync")
 		self._folders[folder] = self._foldertype(stat)
 		
 	def get_file(self, file):
@@ -225,11 +232,11 @@ class sync(object):
 		self.copy = []
 		self.remove = []
 		
-		if config.config_changed == True:
-			self.files = [(x, y) for x, y in self.files if test_string(config.ignore_file, x[1:]) == False]
-			self.folders = [(x, y) for x, y in self.folders if test_string(config.ignore_path, x[1:]) == False]
-			self._save_data
-			config._save_config_hash()
+		# if config.config_changed == True:
+		# 	self.files = [(x, y) for x, y in self.files if test_string(config.ignore_file, x[1:]) == False]
+		# 	self.folders = [(x, y) for x, y in self.folders if test_string(config.ignore_path, x[1:]) == False]
+		# 	self._save_data
+		# 	config._save_config_hash()
 			
 		self._find_changes(config)
 				
@@ -466,6 +473,9 @@ class config(object):
 	root has to be a absolutley path to a directory
 	All ignore-keys can use * at the value as placeholder for everything
 	"""
+
+	_filter = namedtuple('_filter', 'full, preglob, postglob, values')
+
 	def __init__(self, configname):
 		logging.info("Create config object")
 		
@@ -475,7 +485,7 @@ class config(object):
 		self._configname = configname
 		self.configname_hash = ".hash_" + configname
 		self._hexdigest = ""
-		
+
 		for key in (self._keys + self._parse_keys):
 			self._config[key] = []
 		
@@ -533,7 +543,7 @@ class config(object):
 		if value[-1:] == "*":
 			post = 1
 			value = value[:-1]
-		return (pre, post, value.split("*"))
+		return self._filter(value, pre, post, value.split("*"))
 	
 	def _parse(self, path):
 		"""
@@ -573,6 +583,13 @@ class config(object):
 		# Check if 2 roots exist
 		if len(self._config['root']) != 2:
 			log_and_raise("Config-file: '" + path + "' need to had 2 root keys", e)
+
+	@property
+	def config(self):
+		"""
+		Returns the dictionary with the parsed config
+		"""
+		return self._config
 	
 	@property
 	def roots(self):
