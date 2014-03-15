@@ -83,15 +83,15 @@ def test_string(parsed_filters, string):
 	return False
 
 class BasicData(object):
-	_filetype = namedtuple('_filetype', 'stat, moddate')
+	_filetype = namedtuple('_filetype', 'stat, moddate, size')
 	_foldertype = namedtuple('_foldertype', 'stat')
 
 	def __init__(self):
 		self._files = dict()
 		self._folders = dict()
 		
-	def add_file(self, file, stat, moddate):
-		self._files[file] = self._filetype(stat, moddate)
+	def add_file(self, file, stat, moddate, size):
+		self._files[file] = self._filetype(stat, moddate, size)
 		
 	def add_folder(self, folder, stat):
 		self._folders[folder] = self._foldertype(stat)
@@ -133,11 +133,13 @@ class PersistenceData(BasicData):
 		except PermissionError as e:
 			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
 		else:
-			for (key, values) in pickle.load(f):
-				if len(values) == 2:
-					self.add_file(key, values[0], values[1])
-				else:
+			for (key, data_type, values) in pickle.load(f):
+				if data_type == "file":
+					self.add_file(key, values[0], values[1], values[2])
+				elif data_type == "folder":
 					self.add_folder(key, values[0])
+				else:
+					log_and_raise("Error on loading Data. Unknown data_type: '" + data_type + "'")
 			f.close()
 	
 	def _save_data(self):
@@ -146,12 +148,12 @@ class PersistenceData(BasicData):
 		"""
 		try:
 			with open('saved_data', 'wb') as f: 
-				pickle.dump([(k, [v.stat, v.moddate]) for k, v in self._files.items()] + [(k, [v.stat]) for k, v in self._folders.items()], f)
+				pickle.dump([(k, "file", [v.stat, v.moddate, v.size]) for k, v in self._files.items()] + [(k, "folder", [v.stat]) for k, v in self._folders.items()], f)
 		except Exception as e:
 			log_and_raise("Could not save data to: '" + 'folders' + "'", e)
 	
-	def add_file(self, file, stat, moddate):
-		super().add_file(file, stat, moddate)
+	def add_file(self, file, stat, moddate, size):
+		super().add_file(file, stat, moddate, size)
 		self._save_data()
 		
 	def add_folder(self, file, stat):
@@ -184,6 +186,15 @@ class FSData(BasicData):
 			return os.lstat(file).st_mtime
 		except Exception as e:
 			log_and_raise("Could not read moddate from: '" + file + "'", e)
+
+	def _size(self, file):
+		"""
+		Return the file size
+		"""
+		try:
+			return os.path.getsize(file)
+		except OSError as e:
+			log_and_raise("Could not read size from: '" + file + "'", e)
 			
 	def __init__(self, path):
 		self._path = path
@@ -191,7 +202,7 @@ class FSData(BasicData):
 	
 	def add_file(self, file):
 		path = self._path + "/" + file
-		super().add_file(file, self._stat(path), self._moddate(path))
+		super().add_file(file, self._stat(path), self._moddate(path), self._size(path))
 		
 	def add_folder(self, folder):
 		path = self._path + "/" + folder
@@ -221,24 +232,6 @@ class sync(object):
 			config._save_config_hash()
 			
 		self._find_changes(config)
-	
-	def _stat(self, file):
-		"""
-		Return the permissions for a file or folder
-		"""
-		try:
-			return oct(os.lstat(file).st_mode)[-3:]
-		except PermissionError:
-			log_and_raise("Could not read stat from: '" + file + "'", e)
-		
-	def _moddate(self, file):
-		"""
-		Return the last modification date from a file or folder
-		"""
-		try:
-			return os.lstat(file).st_mtime
-		except Exception as e:
-			log_and_raise("Could not read moddate from: '" + file + "'", e)
 				
 	def _find_files(self, config):
 		"""
@@ -312,7 +305,7 @@ class sync(object):
 			self.root0.changed_files.remove(file)
 			self.root1.changed_files.remove(file)
 			self.file_conflicts.remove(file)
-			self.sync_data.add_file(file, self.root0.get_file(file).stat, self.root0.get_file(file).moddate)
+			self.sync_data.add_file(file, self.root0.get_file(file).stat, self.root0.get_file(file).moddate, self.root0.get_file(file).size)
 			
 		remove = []
 		for folder in self.folder_conflicts:
@@ -334,7 +327,7 @@ class sync(object):
 		for sub_path in self.file_conflicts:
 			for root in (self.root0, self.root1):
 				if sub_path in root.files.keys():
-					print("File: " + root.path + sub_path + ", Stat: " + root.files[sub_path].stat + ", Moddate:" + str(root.files[sub_path].moddate))
+					print("File: " + root.path + sub_path + ", Stat: " + root.files[sub_path].stat + ", Moddate: " + str(root.files[sub_path].moddate) + ", Size: " + str(root.files[sub_path].size))
 				else:
 					print("File: " + root.path + sub_path + " deleted")
 			while True:
@@ -441,7 +434,7 @@ class sync(object):
 					root = self.root0
 				else:
 					root = self.root1
-				self.sync_data.add_file(sub_path, root.get_file(sub_path).stat, root.get_file(sub_path).moddate)
+				self.sync_data.add_file(sub_path, root.get_file(sub_path).stat, root.get_file(sub_path).moddate, root.get_file(sub_path).size)
 		
 		self.remove = list(self.remove)
 		self.remove.sort(reverse=True)
@@ -480,8 +473,8 @@ class config(object):
 		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
 		self._config = dict()
 		self._configname = configname
-		self._hexdigest = ""
 		self.configname_hash = ".hash_" + configname
+		self._hexdigest = ""
 		
 		for key in (self._keys + self._parse_keys):
 			self._config[key] = []
@@ -630,6 +623,7 @@ class config(object):
 		"""
 		return self._configname
 
+# Commandline arguments
 parser = argparse.ArgumentParser(description='2-way syncronisation for folders')
 parser.add_argument('config', help='name of the configuration file')
 parser.add_argument('-d', '--debug', help='use this option for debuging (write debug messages to logfile)', action='store_true', )
