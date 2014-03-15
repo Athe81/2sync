@@ -232,11 +232,14 @@ class sync(object):
 		self.copy = []
 		self.remove = []
 		
-		# if config.config_changed == True:
-		# 	self.files = [(x, y) for x, y in self.files if test_string(config.ignore_file, x[1:]) == False]
-		# 	self.folders = [(x, y) for x, y in self.folders if test_string(config.ignore_path, x[1:]) == False]
-		# 	self._save_data
-		# 	config._save_config_hash()
+		if config.config_changed == True:
+			for file in self.sync_data.files.keys():
+				if test_string(config.ignore_file, file[1:]) == True:
+					self.sync_data.remove_file(file)
+			for folder in self.sync_data.folders.keys():
+				if test_string(config.ignore_path, folder[1:]) == True:
+					self.sync_data.remove_folder(folder)
+			config._save_config_hash()
 			
 		self._find_changes(config)
 				
