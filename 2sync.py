@@ -56,6 +56,7 @@ def test_string(parsed_filters, string):
 	"""
 	#for (_, pre, post, filters) in parsed_filters:
 	for filters in parsed_filters:
+		logging.info("Test '" + string + "' with filter: '" + filters.full + "'")
 		stat = 1
 		str_pos = 0
 		sum_filters = len(filters.values)
@@ -125,9 +126,20 @@ class BasicData(object):
 
 class PersistenceData(BasicData):
 	# TODO: Convert configname to data filename
-	def __init__(self):
+	def __init__(self, config_changed):
+		logging.info("Init PersistenceData with config changed = " + str(config_changed))
 		super().__init__()
 		self._load_data()
+		# Update sync_data (saved files/folders) if config has changed
+		if config_changed == True:
+			logging.info("Update PersistenceData with new config")
+			for file in self.files.keys():
+				if test_string(config['ignore file'], file[1:]) == True:
+					self.remove_file(file)
+			for folder in self.folders.keys():
+				if test_string(config['ignore path'], folder[1:]) == True:
+					self.remove_folder(folder)
+			config._save_config_hash()
 		
 	def _load_data(self):
 		"""
@@ -176,6 +188,49 @@ class PersistenceData(BasicData):
 		self._save_data()
 
 class FSData(BasicData):
+	def __init__(self, path, config_dict):
+		logging.info("Init FSData with path: '" + path + "'")
+		super().__init__()
+		self._path = path
+		self._find_files(config_dict)
+
+	def _find_files(self, config_dict):
+		"""
+		Read files/folders from root's
+		
+		If file/folder match the filters it will be saved with last modfication date and permissions
+		"""
+
+		len_root_path = len(self._path)
+		for path, _, files in os.walk(self._path, followlinks=False):
+			sub_path = path[len_root_path:] + "/"
+
+			# Add files and folders if 'ignore not path' match to folder
+			if test_string(config_dict['ignore not path'], sub_path) == True:
+				self.add_folder(sub_path)
+				for file in files:
+					self.add_file(sub_path + file)
+				return
+			
+			if test_string(config_dict['ignore path'], sub_path) == True:
+				return
+			
+			# Add while 'ignore path' doesn't match
+			self.add_folder(sub_path)
+			
+			for file in files:
+				# Add file if 'ignore not file' match the filename
+				if test_string(config_dict['ignore not file'], file) == True:
+					self.add_file(sub_path + file)
+					continue
+				
+				# Ignore file if the 'ignore file' match the filename
+				if test_string(config_dict['ignore file'], file) == True:
+					continue
+				
+				# Add file if 'ignore not file' and 'ignore file' not matched
+				self.add_file(sub_path + file)
+
 	def _stat(self, file):
 		"""
 		Return the permissions for a file or folder
@@ -202,10 +257,6 @@ class FSData(BasicData):
 			return os.path.getsize(file)
 		except OSError as e:
 			log_and_raise("Could not read size from: '" + file + "'", e)
-			
-	def __init__(self, path):
-		self._path = path
-		super().__init__()
 	
 	def add_file(self, file):
 		path = self._path + "/" + file
@@ -224,67 +275,15 @@ class sync(object):
 	Main class for the syncronisation
 	"""
 	def __init__(self, config):
-		self.sync_data = PersistenceData()
-		self.root0 = FSData(config.roots[0])
-		self.root1 = FSData(config.roots[1])
+		self.sync_data = PersistenceData(config.config_changed)
+		self.root0 = FSData(config.roots[0], config.config_dict)
+		self.root1 = FSData(config.roots[1], config.config_dict)
 		self.file_conflicts = set()
 		self.folder_conflicts = set()
 		self.copy = []
 		self.remove = []
-		
-		if config.config_changed == True:
-			for file in self.sync_data.files.keys():
-				if test_string(config.ignore_file, file[1:]) == True:
-					self.sync_data.remove_file(file)
-			for folder in self.sync_data.folders.keys():
-				if test_string(config.ignore_path, folder[1:]) == True:
-					self.sync_data.remove_folder(folder)
-			config._save_config_hash()
 			
 		self._find_changes(config)
-				
-	def _find_files(self, config):
-		"""
-		Read files/folders from root's
-		
-		If file/folder match the filters it will be saved with last modfication date and permissions
-		"""
-		def _test_and_add(sub_path, files):
-			"""
-			Test files and folder with ignore filters and returns the files and folder who sould synchronised
-			"""
-			# Add files and folders if 'ignore not path' match to folder
-			if test_string(config.ignore_not_path, sub_path) == True:
-				root.add_folder(sub_path)
-				for file in files:
-					root.add_file(sub_path + file)
-				return
-			
-			if test_string(config.ignore_path, sub_path) == True:
-				return
-			
-			# Add while 'ignore path' doesn't match
-			root.add_folder(sub_path)
-			
-			for file in files:
-				# Add file if 'ignore not file' match the filename
-				if test_string(config.ignore_not_file, file) == True:
-					root.add_file(sub_path + file)
-					continue
-				
-				# Ignore file if the 'ignore file' match the filename
-				if test_string(config.ignore_file, file) == True:
-					continue
-				
-				# Add file if 'ignore not file' and 'ignore file' not matched
-				root.add_file(sub_path + file)
-
-		for root in (self.root0, self.root1):
-			len_root_path = len(root.path)
-			logging.debug("Test files for root: '" + root.path + "'")
-			for path, _, files in os.walk(root.path, followlinks=False):
-				sub_path = path[len_root_path:] + "/"
-				_test_and_add(sub_path, files)
 		
 	def _find_changes(self, config):
 		"""
@@ -296,8 +295,7 @@ class sync(object):
 		Ask user for conflict solution
 		Save the necessary actions  
 		"""
-		self._find_files(config)
-		
+
 		for root in (self.root0, self.root1):
 			root.changed_files = self.sync_data.files.items() ^ root.files.items()
 			root.changed_folders = self.sync_data.folders.items() ^ root.folders.items()
@@ -588,7 +586,7 @@ class config(object):
 			log_and_raise("Config-file: '" + path + "' need to had 2 root keys", e)
 
 	@property
-	def config(self):
+	def config_dict(self):
 		"""
 		Returns the dictionary with the parsed config
 		"""
@@ -600,34 +598,6 @@ class config(object):
 		Returns a list with the roots 
 		"""
 		return self._config['root']
-	
-	@property
-	def ignore_file(self):
-		"""
-		Returns a list with the parsed 'ignore file' values
-		"""
-		return self._config['ignore file']
-	
-	@property
-	def ignore_not_file(self):
-		"""
-		Returns a list with the parsed 'ignore not file' values
-		"""
-		return self._config['ignore not file']
-	
-	@property
-	def ignore_path(self):
-		"""
-		Returns a list with the parsed 'ignore path' values
-		"""
-		return self._config['ignore path']
-	
-	@property
-	def ignore_not_path(self):
-		"""
-		Returns a list with the parsed 'ignore not path' values
-		"""
-		return self._config['ignore not path']
 	
 	@property
 	def config_changed(self):
