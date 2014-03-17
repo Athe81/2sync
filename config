@@ -35,4 +35,3 @@ ignore path = */tmp*
 ignore path = */temp/*
 ignore path = */Backup*
 ignore not file = *.pdf
-
