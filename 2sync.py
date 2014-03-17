@@ -88,6 +88,52 @@ def test_string(parsed_filters, string):
 		logging.debug("'" + string + "' doesn't matched filter: '" + str(filters.full) + "'")
 	return False
 
+def find_changes(pdata, fsdata_1, fsdata_2):
+	"""
+	Find the changed files and folders. Return 2 lists and 2 sets:
+		1 list: changed files as tuple (file, rootnumber)
+		2 list: changed folders as tuple (folder, rootnumber)
+		3 set: file conflicts
+		4 set: folder conflicts
+	"""
+	fsdata1_changed_files = set([f for (f, *_) in (pdata.files.items() ^ fsdata_1.files.items())])
+	fsdata2_changed_files = set([f for (f, *_) in (pdata.files.items() ^ fsdata_2.files.items())])
+	conflicts = fsdata1_changed_files & fsdata2_changed_files
+	fsdata1_changed_files -= conflicts
+	fsdata2_changed_files -= conflicts
+	changed_files = [(f,0) for f in fsdata1_changed_files] + [(f,1) for f in fsdata2_changed_files]
+
+	# Remove conflicts on pdata, if fsdata's has no conflict
+	remove = set()
+	for file in conflicts:
+		if fsdata_1.get_file(file) == None and fsdata_2.get_file(file) == None:
+			pdata.remove_file(file)
+			remove.add(file)
+		elif fsdata_1.get_file(file) == fsdata_2.get_file(file) and get_hash(fsdata_1.path + file) == get_hash(fsdata_2.path + file):
+			pdata.add_file(file, fsdata_1.get_file(file).stat, fsdata_1.get_file(file).moddate, fsdata_1.get_file(file).size)
+			remove.add(file)
+	file_conflicts = conflicts - remove
+
+	fsdata1_changed_folders = set([f for (f, *_) in (pdata.folders.items() ^ fsdata_1.folders.items())])
+	fsdata2_changed_folders = set([f for (f, *_) in (pdata.folders.items() ^ fsdata_2.folders.items())])
+	conflicts = fsdata1_changed_folders & fsdata2_changed_folders
+	fsdata1_changed_folders -= conflicts
+	fsdata2_changed_folders -= conflicts
+	changed_folders = [(f,0) for f in fsdata1_changed_folders] + [(f,1) for f in fsdata2_changed_folders]
+
+	# Remove conflicts on pdata, if fsdata's has no conflict
+	remove = set()
+	for folder in conflicts:
+		if fsdata_1.get_folder(folder) == None and fsdata_2.get_folder(folder) == None:
+			pdata.remove_folder(folder)
+			remove.add(folder)
+		elif fsdata_1.get_folder(folder) == fsdata_2.get_folder(folder):
+			pdata.add_folder(folder, fsdata_1.get_folder(folder).stat)
+			remove.add(folder)
+	folder_conflicts = conflicts - remove
+
+	return changed_files, changed_folders, file_conflicts, folder_conflicts
+
 class BasicData(object):
 	_filetype = namedtuple('_filetype', 'stat, moddate, size')
 	_foldertype = namedtuple('_foldertype', 'stat')
@@ -105,10 +151,16 @@ class BasicData(object):
 		self._folders[folder] = self._foldertype(stat)
 		
 	def get_file(self, file):
-		return self._files[file]
+		if file in self._files:
+			return self._files[file]
+		else:
+			return None
 		
 	def get_folder(self, folder):
-		return self._folders[folder]
+		if folder in self._folders:
+			return self._folders[folder]
+		else:
+			return None
 	
 	def remove_file(self, file):
 		del self._files[file]
@@ -293,46 +345,18 @@ class sync(object):
 		Compare it with the saved informations
 		Check if conflicts exist (file/folder changed on both root's)
 		Ask user for conflict solution
-		Save the necessary actions  
+		Save the necessary actions
 		"""
+		changed_files, changed_folders, file_conflicts, folder_conflicts = find_changes(self.sync_data, self.root0, self.root1)
 
-		for root in (self.root0, self.root1):
-			root.changed_files = self.sync_data.files.items() ^ root.files.items()
-			root.changed_folders = self.sync_data.folders.items() ^ root.folders.items()
-			root.changed_files = set([f for (f, *_) in root.changed_files])
-			root.changed_folders = set([f for (f, *_) in root.changed_folders])
-		
-		self.file_conflicts = self.root0.changed_files & self.root1.changed_files
-		self.folder_conflicts = self.root0.changed_folders & self.root1.changed_folders
-		
-		remove = []
-		for file in self.file_conflicts:
-			if self.root0.get_file(file) == self.root1.get_file(file) and get_hash(self.root0.path + file) == get_hash(self.root1.path + file):
-				remove.append(file)
-		for file in remove:
-			self.root0.changed_files.remove(file)
-			self.root1.changed_files.remove(file)
-			self.file_conflicts.remove(file)
-			self.sync_data.add_file(file, self.root0.get_file(file).stat, self.root0.get_file(file).moddate, self.root0.get_file(file).size)
-			
-		remove = []
-		for folder in self.folder_conflicts:
-			if self.root0.get_folder(folder) == self.root1.get_folder(folder):
-				remove.append(folder)
-		for folder in remove:
-			self.root0.changed_folders.remove(folder)
-			self.root1.changed_folders.remove(folder)
-			self.folder_conflicts.remove(folder)
-			self.sync_data.add_folder(folder, self.root0.get_folder(folder).stat)
-		
 		# Solve conflicts
-		if len(self.file_conflicts) != 0 or len(self.folder_conflicts) != 0:
+		if len(file_conflicts) != 0 or len(folder_conflicts) != 0:
 			print("Please solve conflicts:")
 		
 		
 		# TODO: Find out, what changed and just update the changes
 		_file_conflicts = set()
-		for sub_path in self.file_conflicts:
+		for sub_path in file_conflicts:
 			for root in (self.root0, self.root1):
 				if sub_path in root.files.keys():
 					print("File: " + root.path + sub_path + ", Stat: " + root.files[sub_path].stat + ", Moddate: " + str(root.files[sub_path].moddate) + ", Size: " + str(root.files[sub_path].size))
@@ -348,18 +372,18 @@ class sync(object):
 					_file_conflicts.add(sub_path)
 					break
 				elif action == 1:
-					self.root1.changed_files.remove(sub_path)
+					changed_files.append((sub_path,0))
 					break
 				elif action == 2:
-					self.root0.changed_files.remove(sub_path)
+					changed_files.append((sub_path,1))
 					break
 				
 				print("Wrong input. Please insert a correct input")
 				
-		self.file_conflicts = _file_conflicts
+		file_conflicts = _file_conflicts
 		
-		new_folder_conflict = set()
-		for sub_path in self.folder_conflicts:
+		_folder_conflict = set()
+		for sub_path in folder_conflicts:
 			for root in (self.root0, self.root1):
 				if sub_path in root.folders.keys():
 					print("Folder: " + root.path + sub_path + ", Stat: " + root.folders[sub_path].stat)
@@ -372,43 +396,42 @@ class sync(object):
 					action = -1
 					
 				if action == 0:
-					new_folder_conflict.add(sub_path)
+					_folder_conflict.add(sub_path)
 					break
 				elif action == 1:
-					self.root1.changed_folders.remove(sub_path)
+					changed_folders.append((sub_path,0))
 					break
 				elif action == 2:
-					self.root0.changed_folders.remove(sub_path)
+					changed_folders.append((sub_path,1))
 					break
 				
 				print("Wrong input. Please insert a correct input")
 				
-			self.folder_conflicts = new_folder_conflict
+			folder_conflicts = _folder_conflict
+
+		def analyse_action(sub_path, src_root, dst_root, file_folder):
+			def mark_for_copy(sub_path, src_root, dst_root, file_folder):
+				self.copy.append((sub_path, src_root, dst_root, file_folder))
 				
-		for root in (self.root0, self.root1):
-			def analyse_action(sub_path, src_root, dst_root, file_folder, conflicts):
-				def mark_for_copy(sub_path, src_root, dst_root, file_folder):
-					self.copy.append((sub_path, src_root, dst_root, file_folder))
-					
-				def mark_for_remove(sub_path, dst_root, file_folder):
-					self.remove.append((sub_path, dst_root, file_folder))
-					
-				if filename in conflicts:
-					return
-				if os.path.exists(src_root + sub_path):
-					mark_for_copy(sub_path, src_root, dst_root, file_folder)
-				else:
-					mark_for_remove(sub_path, dst_root, file_folder)
-			if root == self.root0:
-				other_root = self.root1
+			def mark_for_remove(sub_path, dst_root, file_folder):
+				self.remove.append((sub_path, dst_root, file_folder))
+				
+			if os.path.exists(src_root + sub_path):
+				mark_for_copy(sub_path, src_root, dst_root, file_folder)
 			else:
-				other_root = self.root0
-				
-			for filename in root.changed_files:
-				analyse_action(filename, root.path, other_root.path, 'file', self.file_conflicts)
-				
-			for filename in root.changed_folders:
-				analyse_action(filename, root.path, other_root.path, 'folder', self.folder_conflicts)
+				mark_for_remove(sub_path, dst_root, file_folder)
+			
+		for (f, r) in changed_files:
+			if r == 0:
+				analyse_action(f, self.root0.path, self.root1.path, 'file')
+			else:
+				analyse_action(f, self.root1.path, self.root0.path, 'file')
+			
+		for (f, r) in changed_folders:
+			if r == 0:
+				analyse_action(f, self.root0.path, self.root1.path, 'folder')
+			else:
+				analyse_action(f, self.root1.path, self.root0.path, 'folder')
 	
 	def do_action(self):
 		"""
