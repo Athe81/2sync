@@ -4,17 +4,25 @@ import logging
 import argparse
 from twosync import config, data, utils
 
-def analyse_action(sub_path, src_root, dst_root, file_folder):
+def analyse_action(sub_path, src_root, dst_root):
+	def file_folder(path_data):
+		if type(path_data) == data._filetype:
+			return "file"
+		elif type(path_data) == data._foldertype:
+			return "folder"
+		else:
+			utils.log_and_raise("Corrupt data: '" + path_data + "'")
+
 	def mark_for_copy(sub_path, src_root, dst_root, file_folder):
 		copy.append((sub_path, src_root, dst_root, file_folder))
 		
 	def mark_for_remove(sub_path, dst_root, file_folder):
 		remove.append((sub_path, dst_root, file_folder))
-		
-	if os.path.exists(src_root + sub_path):
-		mark_for_copy(sub_path, src_root, dst_root, file_folder)
+
+	if os.path.exists(src_root.path + sub_path):
+		mark_for_copy(sub_path, src_root.path, dst_root.path, file_folder(src_root.get_data(sub_path)))
 	else:
-		mark_for_remove(sub_path, dst_root, file_folder)
+		mark_for_remove(sub_path, dst_root.path, file_folder(pdata.get_data(sub_path)))
 
 def do_action(copy, remove):
 	"""
@@ -32,9 +40,9 @@ def do_action(copy, remove):
 			shutil.copystat(src_root + sub_path, dst_root + sub_path)
 			# Update folders
 			if root0.path == src_root:
-				pdata.add_folder(sub_path, root0.get_folder(sub_path).stat)
+				pdata.add_folder(sub_path, root0.get_data(sub_path).stat)
 			else:
-				pdata.add_folder(sub_path, root1.get_folder(sub_path).stat)
+				pdata.add_folder(sub_path, root1.get_data(sub_path).stat)
 			
 	for x in copy:
 		(sub_path, src_root, dst_root, file_folder) = x
@@ -44,9 +52,9 @@ def do_action(copy, remove):
 			shutil.copystat(src_root + sub_path, dst_root + sub_path)
 			# Update files
 			if root0.path == src_root:
-				pdata.add_file(sub_path, root0.get_file(sub_path).stat, root0.get_file(sub_path).moddate, root0.get_file(sub_path).size)
+				pdata.add_file(sub_path, root0.get_data(sub_path).stat, root0.get_data(sub_path).moddate, root0.get_data(sub_path).size)
 			else:
-				pdata.add_file(sub_path, root1.get_file(sub_path).stat, root1.get_file(sub_path).moddate, root1.get_file(sub_path).size)
+				pdata.add_file(sub_path, root1.get_data(sub_path).stat, root1.get_data(sub_path).moddate, root1.get_data(sub_path).size)
 	
 	remove = list(remove)
 	remove.sort(reverse=True)
@@ -55,14 +63,14 @@ def do_action(copy, remove):
 		print('Remove file: ' + dst_root + sub_path)
 		os.remove(dst_root + sub_path)
 		# Update files
-		pdata.remove_file(sub_path)
+		pdata.remove(sub_path)
 		
 	for x in [(dst_root, sub_path) for (sub_path, dst_root, x) in remove if x == 'folder']:
 		(dst_root, sub_path) = x
 		print('Remove folder: ' + dst_root + sub_path)
 		os.rmdir(dst_root + sub_path)
 		# Update folders
-		pdata.remove_folder(sub_path)
+		pdata.remove(sub_path)
 
 # Commandline arguments
 parser = argparse.ArgumentParser(description='2-way syncronisation for folders')
@@ -91,86 +99,58 @@ try:
 	pdata = data.PersistenceData(config.config_changed)
 	root0 = data.FSData(config.roots[0], config.config_dict)
 	root1 = data.FSData(config.roots[1], config.config_dict)
-	file_conflicts = set()
-	folder_conflicts = set()
 	copy = []
 	remove = []
-	changed_files, changed_folders, file_conflicts, folder_conflicts = utils.find_changes(pdata, root0, root1)
+	action = dict()
+	changes, conflicts = utils.find_changes(pdata, root0, root1)
+	changes -= conflicts
 
 	# Solve conflicts
-	if len(file_conflicts) != 0 or len(folder_conflicts) != 0:
+	if len(conflicts) != 0:
 		print("Please solve conflicts:")
 	
 	# TODO: Find out, what changed and just update the changes
-	_file_conflicts = set()
-	for sub_path in file_conflicts:
+	for sub_path in conflicts:
 		for root in (root0, root1):
-			if sub_path in root.files.keys():
-				print("File: " + root.path + sub_path + ", Stat: " + root.files[sub_path].stat + ", Moddate: " + str(root.files[sub_path].moddate) + ", Size: " + str(root.files[sub_path].size))
+			_data = root.get_data(sub_path)
+			if _data == None:
+				print("File: '" + root.path + sub_path + "' does not exist")
+			elif type(_data) == data._filetype:
+				print("File: " + root.path + sub_path + ", Stat: " + _data.stat + ", Moddate: " + str(_data.moddate) + ", Size: " + str(_data.size))
+			elif type(_data) == data._foldertype:
+				print("Folder: " + root.path + sub_path + ", Stat: " + _data.stat)
 			else:
-				print("File: " + root.path + sub_path + " deleted")
+				utils.log_and_raise("Corrupt pdata for path: '" + sub_path + "'")
 		while True:
 			try:
-				action = int(input("0: ignore, 1: " + root0.path + sub_path + " is master, 2: " + root1.path + sub_path + " is master "))
+				usr_action = int(input("0: ignore, 1: " + root0.path + sub_path + " is master, 2: " + root1.path + sub_path + " is master "))
 			except ValueError:
-				action = -1
+				usr_action = -1
 			
-			if action == 0:
-				_file_conflicts.add(sub_path)
+			if usr_action == 0:
 				break
-			elif action == 1:
-				changed_files.append((sub_path,0))
+			elif usr_action == 1:
+				analyse_action(sub_path, root0, root1)
 				break
-			elif action == 2:
-				changed_files.append((sub_path,1))
+			elif usr_action == 2:
+				analyse_action(sub_path, root1, root0)
 				break
 			
 			print("Wrong input. Please insert a correct input")
-
-	file_conflicts = _file_conflicts
 	
-	_folder_conflict = set()
-	for sub_path in folder_conflicts:
-		for root in (root0, root1):
-			if sub_path in root.folders.keys():
-				print("Folder: " + root.path + sub_path + ", Stat: " + root.folders[sub_path].stat)
-			else:
-				print("Folder: " + root.path + sub_path + " deleted")
-		while True:
-			try:
-				action = int(input("0: ignore, 1: " + root0.path + sub_path + " is master, 2: " + root1.path + sub_path + " is master "))
-			except ValueError:
-				action = -1
-				
-			if action == 0:
-				_folder_conflict.add(sub_path)
-				break
-			elif action == 1:
-				changed_folders.append((sub_path,0))
-				break
-			elif action == 2:
-				changed_folders.append((sub_path,1))
-				break
-			
-			print("Wrong input. Please insert a correct input")
-			
-	folder_conflicts = _folder_conflict
-	
-	for (f, r) in changed_files:
-		if r == 0:
-			analyse_action(f, root0.path, root1.path, 'file')
+	for change in changes:
+		if pdata.get_data(change) != root0.get_data(change):
+			print("File: " + change + " update from root0 to root1")
+			analyse_action(change, root0, root1)
+		elif pdata.get_data(change) != root1.get_data(change):
+			print("File: " + change + " update from root1 to root0")
+			analyse_action(change, root1, root0)
 		else:
-			analyse_action(f, root1.path, root0.path, 'file')
-		
-	for (f, r) in changed_folders:
-		if r == 0:
-			analyse_action(f, root0.path, root1.path, 'folder')
-		else:
-			analyse_action(f, root1.path, root0.path, 'folder')
+			print("Error with file: " + change)
 
 	do_action(copy, remove)
 
-except ExitError:
+except utils.ExitError:
 	pass
 except KeyboardInterrupt:
 	print()

@@ -1,50 +1,36 @@
-from twosync.utils import test_string
+from twosync.utils import test_string, log_and_raise
 from collections import namedtuple
 import os
 import pickle
 import logging
 
-class BasicData(object):
-	_filetype = namedtuple('_filetype', 'stat, moddate, size')
-	_foldertype = namedtuple('_foldertype', 'stat')
+_filetype 	= namedtuple('_filetype', 'stat, moddate, size')
+_foldertype = namedtuple('_foldertype', 'stat')
 
+class BasicData(object):
 	def __init__(self):
-		self._files = dict()
-		self._folders = dict()
-		
+		self._data = dict()
+
 	def add_file(self, file, stat, moddate, size):
 		logging.info("Add file '" + file + "' for sync")
-		self._files[file] = self._filetype(stat, moddate, size)
+		self._data[file] = _filetype(stat, moddate, size)
 		
 	def add_folder(self, folder, stat):
 		logging.info("Add folder '" + folder + "' for sync")
-		self._folders[folder] = self._foldertype(stat)
-		
-	def get_file(self, file):
-		if file in self._files:
-			return self._files[file]
-		else:
+		self._data[folder] = _foldertype(stat)
+
+	def get_data(self, path):
+		try:
+			return self._data[path]
+		except KeyError:
 			return None
-		
-	def get_folder(self, folder):
-		if folder in self._folders:
-			return self._folders[folder]
-		else:
-			return None
-	
-	def remove_file(self, file):
-		del self._files[file]
-		
-	def remove_folder(self, folder):
-		del self._folders[folder]
-	
+
+	def remove(self, path):
+		del self._data[path]
+
 	@property
-	def files(self):
-		return self._files
-	
-	@property
-	def folders(self):
-		return self._folders
+	def data(self):
+		return self._data
 
 class PersistenceData(BasicData):
 	# TODO: Convert configname to data filename
@@ -67,31 +53,27 @@ class PersistenceData(BasicData):
 		"""
 		Loads the saved information about synchronised files and folders
 		"""
+		filename = "saved_data"
 		try:
-			f = open('saved_data', 'rb')
+			with open(filename, 'rb') as f:
+				self._data = pickle.load(f)
 		except FileNotFoundError:
-			logging.warn("Could not load data from file: '" + 'files' + "'. File not found")
+			logging.warn("Could not load data from file: '" + filename + "'. File not found")
 		except PermissionError as e:
-			log_and_raise("Could not load data from file: '" + 'folders' + "'. No Permission", e)
-		else:
-			for (key, data_type, values) in pickle.load(f):
-				if data_type == "file":
-					self.add_file(key, values[0], values[1], values[2])
-				elif data_type == "folder":
-					self.add_folder(key, values[0])
-				else:
-					log_and_raise("Error on loading Data. Unknown data_type: '" + data_type + "'")
-			f.close()
+			log_and_raise("Could not load data from file: '" + filename + "'. No Permission", e)
+		except EOFError as e:
+			log_and_raise("Could not load data from file: '" + filename + "'. File is corrupt", e)
 	
 	def _save_data(self):
 		"""
 		Save the informations about synchronised files and folders
 		"""
+		filename = "saved_data"
 		try:
-			with open('saved_data', 'wb') as f: 
-				pickle.dump([(k, "file", [v.stat, v.moddate, v.size]) for k, v in self._files.items()] + [(k, "folder", [v.stat]) for k, v in self._folders.items()], f)
+			with open(filename, 'wb') as f: 
+				pickle.dump(self._data, f)
 		except Exception as e:
-			log_and_raise("Could not save data to: '" + 'folders' + "'", e)
+			log_and_raise("Could not save data to: '" + filename + "'", e)
 	
 	def add_file(self, file, stat, moddate, size):
 		super().add_file(file, stat, moddate, size)
@@ -101,12 +83,8 @@ class PersistenceData(BasicData):
 		super().add_folder(file, stat)
 		self._save_data()
 		
-	def remove_file(self, file):
-		super().remove_file(file)
-		self._save_data()
-		
-	def remove_folder(self, folder):
-		super().remove_folder(folder)
+	def remove(self, path):
+		super().remove(path)
 		self._save_data()
 
 class FSData(BasicData):
@@ -125,13 +103,14 @@ class FSData(BasicData):
 
 		len_root_path = len(self._path)
 		for path, _, files in os.walk(self._path, followlinks=False):
-			sub_path = path[len_root_path:] + "/"
+			sub_path = path[len_root_path:]
 
 			# Add files and folders if 'ignore not path' match to folder
 			if test_string(config_dict['ignore not path'], sub_path) == True:
 				self.add_folder(sub_path)
+
 				for file in files:
-					self.add_file(sub_path + file)
+					self.add_file(sub_path  + "/" + file)
 				return
 			
 			if test_string(config_dict['ignore path'], sub_path) == True:
@@ -143,7 +122,7 @@ class FSData(BasicData):
 			for file in files:
 				# Add file if 'ignore not file' match the filename
 				if test_string(config_dict['ignore not file'], file) == True:
-					self.add_file(sub_path + file)
+					self.add_file(sub_path  + "/" + file)
 					continue
 				
 				# Ignore file if the 'ignore file' match the filename
@@ -151,7 +130,7 @@ class FSData(BasicData):
 					continue
 				
 				# Add file if 'ignore not file' and 'ignore file' not matched
-				self.add_file(sub_path + file)
+				self.add_file(sub_path  + "/" + file)
 
 	def _stat(self, file):
 		"""

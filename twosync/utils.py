@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import twosync
 
 def log_and_raise(msg, e=None):
 	"""
@@ -83,46 +84,30 @@ def test_string(parsed_filters, string):
 
 def find_changes(pdata, fsdata_1, fsdata_2):
 	"""
-	Find the changed files and folders. Return 2 lists and 2 sets:
-		1 list: changed files as tuple (file, rootnumber)
-		2 list: changed folders as tuple (folder, rootnumber)
-		3 set: file conflicts
-		4 set: folder conflicts
+	Find the changed files and folders. Return 2 sets:
+		set 1: changed files including conflicts
+		set 2: conflicts
 	"""
-	fsdata1_changed_files = set([f for (f, *_) in (pdata.files.items() ^ fsdata_1.files.items())])
-	fsdata2_changed_files = set([f for (f, *_) in (pdata.files.items() ^ fsdata_2.files.items())])
-	conflicts = fsdata1_changed_files & fsdata2_changed_files
-	fsdata1_changed_files -= conflicts
-	fsdata2_changed_files -= conflicts
-	changed_files = [(f,0) for f in fsdata1_changed_files] + [(f,1) for f in fsdata2_changed_files]
+	changes_data1 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_1.data.items())])
+	changes_data2 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_2.data.items())])
+	conflicts = changes_data1 & changes_data2
 
 	# Remove conflicts on pdata, if fsdata's has no conflict
 	remove = set()
-	for file in conflicts:
-		if fsdata_1.get_file(file) == None and fsdata_2.get_file(file) == None:
-			pdata.remove_file(file)
-			remove.add(file)
-		elif fsdata_1.get_file(file) == fsdata_2.get_file(file) and get_hash(fsdata_1.path + file) == get_hash(fsdata_2.path + file):
-			pdata.add_file(file, fsdata_1.get_file(file).stat, fsdata_1.get_file(file).moddate, fsdata_1.get_file(file).size)
-			remove.add(file)
-	file_conflicts = conflicts - remove
+	for conflict in conflicts:
+		if fsdata_1.get_data(conflict) == None and fsdata_2.get_data(conflict) == None:
+			pdata.remove(conflict)
+			remove.add(conflict)
+		elif fsdata_1.get_data(conflict) == fsdata_2.get_data(conflict):
+			if type(fsdata_1.get_data(conflict)) == twosync.data._filetype:
+				if get_hash(fsdata_1.path + conflict) == get_hash(fsdata_2.path + conflict):
+					pdata.add_file(conflict, fsdata_1.get_data(conflict).stat, fsdata_1.get_data(conflict).moddate, fsdata_1.get_data(conflict).size)
+					remove.add(conflict)
+			if type(fsdata_1.get_data(conflict)) == twosync.data._foldertype:
+				pdata.add_folder(conflict, fsdata_1.get_data(conflict).stat)
+				remove.add(conflict)
 
-	fsdata1_changed_folders = set([f for (f, *_) in (pdata.folders.items() ^ fsdata_1.folders.items())])
-	fsdata2_changed_folders = set([f for (f, *_) in (pdata.folders.items() ^ fsdata_2.folders.items())])
-	conflicts = fsdata1_changed_folders & fsdata2_changed_folders
-	fsdata1_changed_folders -= conflicts
-	fsdata2_changed_folders -= conflicts
-	changed_folders = [(f,0) for f in fsdata1_changed_folders] + [(f,1) for f in fsdata2_changed_folders]
+	conflicts -= remove
+	changes = changes_data1 | changes_data2
 
-	# Remove conflicts on pdata, if fsdata's has no conflict
-	remove = set()
-	for folder in conflicts:
-		if fsdata_1.get_folder(folder) == None and fsdata_2.get_folder(folder) == None:
-			pdata.remove_folder(folder)
-			remove.add(folder)
-		elif fsdata_1.get_folder(folder) == fsdata_2.get_folder(folder):
-			pdata.add_folder(folder, fsdata_1.get_folder(folder).stat)
-			remove.add(folder)
-	folder_conflicts = conflicts - remove
-
-	return changed_files, changed_folders, file_conflicts, folder_conflicts
+	return changes, conflicts

@@ -13,11 +13,11 @@ Maybe you like the other tool. Have a look at unison and/or git-annex
 
 Depends: python3
 
-2sync.py -h for help
+2sync-cli.py -h for help
 
 ToDo:
 ===
-- Add ErrorHandling
+- Better ErrorHandling and logging
 - Add support for paths in config
 - Add support for remote paths over ssh
 - Create backups before files deleted or overwritten
