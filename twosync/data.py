@@ -166,6 +166,13 @@ class FSData(BasicData):
 	def add_folder(self, folder):
 		path = self._path + "/" + folder
 		super().add_folder(folder, self._stat(path))
+
+	def add(self, path):
+		# path = self._path + "/" + path
+		if os.path.isfile(path):
+			self.add_file(path)
+		elif os.path.isdir(path):
+			self.add_folder(path)
 		
 	@property
 	def path(self):
