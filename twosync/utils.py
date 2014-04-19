@@ -42,13 +42,20 @@ def get_hash(file):
 	f.close()
 	return _config_hash.hexdigest()
 
+def get_str_hash(content):
+	"""
+	Returns the SHA1 hash of content
+	"""
+	_config_hash = hashlib.sha1()
+	_config_hash.update(content.encode())
+	return _config_hash.hexdigest()
+
 def test_string(parsed_filters, string):
 	"""
 	Test a string with the given, parsed filters
 	
 	Returns True if the string match or False if not
 	"""
-	#for (_, pre, post, filters) in parsed_filters:
 	for filters in parsed_filters:
 		logging.info("Test '" + string + "' with filter: '" + filters.full + "'")
 		stat = 1
@@ -91,6 +98,7 @@ def find_changes(pdata, fsdata_1, fsdata_2):
 	changes_data1 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_1.data.items())])
 	changes_data2 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_2.data.items())])
 	conflicts = changes_data1 & changes_data2
+	changes = changes_data1 | changes_data2
 
 	# Remove conflicts on pdata, if fsdata's has no conflict
 	remove = set()
@@ -108,6 +116,6 @@ def find_changes(pdata, fsdata_1, fsdata_2):
 				remove.add(conflict)
 
 	conflicts -= remove
-	changes = changes_data1 | changes_data2
+	changes -= remove
 
 	return changes, conflicts

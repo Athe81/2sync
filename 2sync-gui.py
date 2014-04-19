@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import os
 import shutil
 import logging
@@ -30,7 +32,7 @@ logging.info("Start program")
 
 try:
 	config = config.config(args.config)
-	pdata = data.PersistenceData(config.config_changed)
+	pdata = data.PersistenceData(config)
 	root0 = data.FSData(config.roots[0], config.config_dict)
 	root1 = data.FSData(config.roots[1], config.config_dict)
 	changes, conflicts = utils.find_changes(pdata, root0, root1)
@@ -40,7 +42,7 @@ try:
 			max_path_len = len(c)
 
 except utils.ExitError:
-	pass
+	exit(100)
 except Exception as e:
 	logging.critical("Unknown error", e)
 

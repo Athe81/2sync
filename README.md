@@ -11,9 +11,9 @@ It check files from 2 two paths and synchronise it.
 I found a few other tools who do this, but it doesn't match my needs. So I started to develop a tool.
 Maybe you like the other tool. Have a look at unison and/or git-annex
 
-Depends: python3
+Depends: python3, PyGObject (aka PyGI)
 
-2sync-cli.py -h for help
+2sync-gui.py -h for help
 
 ToDo:
 ===

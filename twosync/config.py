@@ -1,5 +1,5 @@
 import logging
-from twosync.utils import get_hash
+from twosync.utils import get_hash, get_str_hash
 from collections import namedtuple
 		
 class config(object):
@@ -26,8 +26,8 @@ class config(object):
 		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
 		self._config = dict()
 		self._configname = configname
-		self.configname_hash = ".hash_" + configname
-		self._hexdigest = ""
+		self._path_hash = ".hash_" + self._configname
+		self._path_data = ".data_" + self._configname
 
 		for key in (self._keys + self._parse_keys):
 			self._config[key] = []
@@ -45,11 +45,11 @@ class config(object):
 		
 		saved_hash = ''
 		try:
-			f = open(self.configname_hash, 'r')
+			f = open(self._path_hash, 'r')
 		except FileNotFoundError:
 			logging.info("No hash key for config-file: '" + configname + "'")
 		except PermissionError as e:
-			log_and_raise("No permission to read hash-file: '" + self.configname_hash + "'", e)
+			log_and_raise("No permission to read hash-file: '" + self._path_hash + "'", e)
 			pass
 		else:
 			saved_hash = f.read()
@@ -64,10 +64,10 @@ class config(object):
 	
 	def _save_config_hash(self):
 		try:
-			f = open(self.configname_hash, 'w')
+			f = open(self._path_hash, 'w')
 			f.write(self._hexdigest)
 		except PermissionError as e:
-			log_and_raise("No permission to write hash-file: '" + self.configname_hash + "'", e)
+			log_and_raise("No permission to write hash-file: '" + self._path_hash + "'", e)
 		else:
 			f.close()
 	

@@ -1,11 +1,14 @@
 from twosync.utils import test_string, log_and_raise
 from collections import namedtuple
+import hashlib
 import os
 import pickle
 import logging
 
 _filetype 	= namedtuple('_filetype', 'stat, moddate, size')
 _foldertype = namedtuple('_foldertype', 'stat')
+
+
 
 class BasicData(object):
 	def __init__(self):
@@ -33,47 +36,53 @@ class BasicData(object):
 		return self._data
 
 class PersistenceData(BasicData):
-	# TODO: Convert configname to data filename
-	def __init__(self, config_changed):
-		logging.info("Init PersistenceData with config changed = " + str(config_changed))
+	def __init__(self, config):
+		logging.info("Init PersistenceData with config changed = " + str(config.config_changed))
 		super().__init__()
+
+		self._path_data = config._path_data
+
 		self._load_data()
+
 		# Update sync_data (saved files/folders) if config has changed
-		if config_changed == True:
+		if config.config_changed == True:
 			logging.info("Update PersistenceData with new config")
-			for file in self.files.keys():
-				if test_string(config['ignore file'], file[1:]) == True:
-					self.remove_file(file)
-			for folder in self.folders.keys():
-				if test_string(config['ignore path'], folder[1:]) == True:
-					self.remove_folder(folder)
+			for path in self.data.keys():
+				if type(path) == _filetype:
+					print("File")
+					if test_string(config['ignore file'], file[1:]) == True:
+						self.remove_file(file)
+				elif type(path) == _foldertype:
+					print("Folder")
+					if test_string(config['ignore path'], folder[1:]) == True:
+						self.remove_folder(folder)
+				else:
+					print("Corrupt data")
 			config._save_config_hash()
 		
 	def _load_data(self):
 		"""
 		Loads the saved information about synchronised files and folders
 		"""
-		filename = "saved_data"
 		try:
-			with open(filename, 'rb') as f:
+			with open(self._path_data, 'rb') as f:
 				self._data = pickle.load(f)
 		except FileNotFoundError:
-			logging.warn("Could not load data from file: '" + filename + "'. File not found")
+			logging.warn("Could not load data from file: '" + self._path_data + "'. File not found")
 		except PermissionError as e:
-			log_and_raise("Could not load data from file: '" + filename + "'. No Permission", e)
+			log_and_raise("Could not load data from file: '" + self._path_data + "'. No Permission", e)
 		except EOFError as e:
-			log_and_raise("Could not load data from file: '" + filename + "'. File is corrupt", e)
+			log_and_raise("Could not load data from file: '" + self._path_data + "'. File is corrupt", e)
 	
 	def _save_data(self):
 		"""
 		Save the informations about synchronised files and folders
 		"""
-		filename = "saved_data"
 		try:
-			with open(filename, 'wb') as f: 
+			with open(self._path_data, 'wb') as f: 
 				pickle.dump(self._data, f)
 		except Exception as e:
-			log_and_raise("Could not save data to: '" + filename + "'", e)
+			log_and_raise("Could not save data to: '" + self._path_data + "'", e)
 	
 	def add_file(self, file, stat, moddate, size):
 		super().add_file(file, stat, moddate, size)
@@ -87,12 +96,48 @@ class PersistenceData(BasicData):
 		super().remove(path)
 		self._save_data()
 
+	def analyse_data(self, fsdata_1, fsdata_2):
+		"""
+		# Find the changed files and folders. Return 2 sets:
+		# 	set 1: changed files including conflicts
+		# 	set 2: conflicts
+		"""
+		changes_data1 = set([f for (f, *_) in (self.data.items() ^ fsdata_1.data.items())])
+		changes_data2 = set([f for (f, *_) in (self.data.items() ^ fsdata_2.data.items())])
+		conflicts = changes_data1 & changes_data2
+
+		# Remove conflicts on self, if fsdata's has no conflict
+		remove = set()
+		for conflict in conflicts:
+			if fsdata_1.get_data(conflict) == None and fsdata_2.get_data(conflict) == None:
+				self.remove(conflict)
+				remove.add(conflict)
+			elif fsdata_1.get_data(conflict) == fsdata_2.get_data(conflict):
+				if type(fsdata_1.get_data(conflict)) == twosync.data._filetype:
+					if get_hash(fsdata_1.path + conflict) == get_hash(fsdata_2.path + conflict):
+						self.add_file(conflict, fsdata_1.get_data(conflict).stat, fsdata_1.get_data(conflict).moddate, fsdata_1.get_data(conflict).size)
+						remove.add(conflict)
+				if type(fsdata_1.get_data(conflict)) == twosync.data._foldertype:
+					self.add_folder(conflict, fsdata_1.get_data(conflict).stat)
+					remove.add(conflict)
+
+		conflicts -= remove
+		changes = changes_data1 | changes_data2
+
+		return changes, conflicts
+
+	def get_change_details(self, data_1, data_2):
+		pass
+
 class FSData(BasicData):
 	def __init__(self, path, config_dict):
 		logging.info("Init FSData with path: '" + path + "'")
 		super().__init__()
 		self._path = path
-		self._find_files(config_dict)
+		if path[0:6] == 'ssh://':
+			log_and_raise("Error: ssh is not suported")
+		else:
+			self._find_files(config_dict)
 
 	def _find_files(self, config_dict):
 		"""
