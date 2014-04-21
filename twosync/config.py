@@ -1,7 +1,10 @@
 import logging
-from twosync.utils import get_hash, get_str_hash
+import os.path
+from twosync.utils import get_hash, get_str_hash, log_and_raise
 from collections import namedtuple
-		
+
+_filter = namedtuple('_filter', 'full, preglob, postglob, values')
+
 class config(object):
 	"""
 	The config object open a config file an prepare it for usage
@@ -17,37 +20,39 @@ class config(object):
 	All ignore-keys can use * at the value as placeholder for everything
 	"""
 
-	_filter = namedtuple('_filter', 'full, preglob, postglob, values')
-
 	def __init__(self, configname):
 		logging.info("Create config object")
 		
-		self._keys = ['root']
-		self._parse_keys = ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
-		self._config = dict()
-		self._configname = configname
-		self._path_hash = ".hash_" + self._configname
-		self._path_data = ".data_" + self._configname
+		self._keys 			= ['root']
+		self._parse_keys 	= ['ignore not file', 'ignore file', 'ignore not path', 'ignore path']
+		self._config 		= dict()
+		self._configname 	= configname
+		self._path_config 	= os.path.expanduser("~/.twosync/" + self._configname)
+		self._path_hash 	= os.path.expanduser("~/.twosync/.hash_" + self._configname)
+		self._path_data 	= os.path.expanduser("~/.twosync/.data_" + self._configname)
 
 		for key in (self._keys + self._parse_keys):
 			self._config[key] = []
 		
-		self._config_changed = self._config_changed(self._configname)
-		self._parse(self._configname)
+		self._config_changed()
+		self._parse()
 		
-	def _config_changed(self, configname):
+	def _config_changed(self):
 		"""
-		Create sha1 hash for config. Compare it with the existing sha1 hash for config. Save the new hash.
+		Writes True or False to 'self._config_changed' depending if the config has changed
+
+		The comparison are done over a sha1 checksum, which saved on the HD
 		"""
+
 		logging.info("Check if config-file has changed")
-		
-		self._hexdigest = get_hash(configname)
+
+		self._hexdigest = get_hash(self._path_config)
 		
 		saved_hash = ''
 		try:
 			f = open(self._path_hash, 'r')
 		except FileNotFoundError:
-			logging.info("No hash key for config-file: '" + configname + "'")
+			logging.info("No hash key for config-file: '" + self._path_config + "'")
 		except PermissionError as e:
 			log_and_raise("No permission to read hash-file: '" + self._path_hash + "'", e)
 			pass
@@ -58,9 +63,9 @@ class config(object):
 		
 		if self._hexdigest == saved_hash:
 			logging.info("config-file has not changed")
-			return False
+			self._config_changed = False
 		logging.info("config-file has changed")
-		return True
+		self._config_changed = True
 	
 	def _save_config_hash(self):
 		try:
@@ -86,19 +91,18 @@ class config(object):
 		if value[-1:] == "*":
 			post = 1
 			value = value[:-1]
-		return self._filter(value, pre, post, value.split("*"))
+		return _filter(value, pre, post, value.split("*"))
 	
-	def _parse(self, path):
+	def _parse(self):
 		"""
-		Parse a config-file
-		
-		Parse the given config-file an test if the config-file match the specifications  
+		Parse the config-file an test if the config-file match the specifications
 		"""
 		
-		logging.info("Parse config-file: '" + path + "'")
+		logging.info("Parse config-file: '" + self._path_config + "'")
+
 		try:
 			# Open config file and parse content.
-			for line in open(path, 'r'):
+			for line in open(self._path_config, 'r'):
 				# remove whitespaces
 				line = line.strip()
 				# ignore if comment and empty line
@@ -110,7 +114,7 @@ class config(object):
 				key = key.strip()
 				value = value.strip()
 				if not key in (self._keys + self._parse_keys):
-					log_and_raise("Invalid key: '" + key + "' in config-file: '" + path + "'")
+					log_and_raise("Invalid key: '" + key + "' in config-file: '" + self._path_config + "'")
 				if key in self._parse_keys:
 					value = self._parse_exp(value)
 				# save value to key
@@ -118,14 +122,14 @@ class config(object):
 				config.append(value)
 				
 		except FileNotFoundError as e:
-			log_and_raise("Config-file: '" + path + "' does not exist", e)
+			log_and_raise("Config-file: '" + self._path_config + "' does not exist", e)
 		
 		except PermissionError as e:
-			log_and_raise("No permission on config-file: '" + path + "'", e)
+			log_and_raise("No permission on config-file: '" + self._path_config + "'", e)
 			
 		# Check if 2 roots exist
 		if len(self._config['root']) != 2:
-			log_and_raise("Config-file: '" + path + "' need to had 2 root keys", e)
+			log_and_raise("Config-file: '" + self._path_config + "' need 2 root keys", e)
 
 	@property
 	def config_dict(self):
