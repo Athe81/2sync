@@ -1,5 +1,4 @@
 #! /usr/bin/env python3
-
 import os
 import shutil
 import logging
@@ -126,6 +125,9 @@ class CellRendererTextWindow(Gtk.Window):
 
 		self.treeview.get_selection().connect("changed", self.treeview_selection)
 
+		scrolled_window = Gtk.ScrolledWindow()
+		scrolled_window.add(self.treeview)
+
 		self.lbl_path	 = Gtk.Label(xalign=0, selectable=True)
 		self.lbl_detail0 = Gtk.Label(xalign=0, selectable=True)
 		self.lbl_detail1 = Gtk.Label(xalign=0, selectable=True)
@@ -151,7 +153,7 @@ class CellRendererTextWindow(Gtk.Window):
 		grid.set_border_width(4)
 		grid.set_row_spacing(10)
 		grid.set_column_spacing(10)
-		grid.attach(self.treeview, 		0, 0, 6, 1)
+		grid.attach(scrolled_window, 	0, 0, 6, 1)
 		grid.attach(self.lbl_path, 		0, 1, 6, 1)
 		grid.attach(self.lbl_detail0, 	0, 2, 6, 1)
 		grid.attach(self.lbl_detail1, 	0, 3, 6, 1)
