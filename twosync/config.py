@@ -5,7 +5,7 @@ from collections import namedtuple
 
 _filter = namedtuple('_filter', 'full, preglob, postglob, values')
 
-class config(object):
+class Config(object):
 	"""
 	The config object open a config file an prepare it for usage
 	
@@ -64,8 +64,9 @@ class config(object):
 		if self._hexdigest == saved_hash:
 			logging.info("config-file has not changed")
 			self._config_changed = False
-		logging.info("config-file has changed")
-		self._config_changed = True
+		else:
+			logging.info("config-file has changed")
+			self._config_changed = True
 	
 	def _save_config_hash(self):
 		try:
@@ -130,6 +131,86 @@ class config(object):
 		# Check if 2 roots exist
 		if len(self._config['root']) != 2:
 			log_and_raise("Config-file: '" + self._path_config + "' need 2 root keys", e)
+
+		# Check if not both roots are ssh
+		if self._config['root'][0].startswith('ssh://') and self._config['root'][1].startswith('ssh://'):
+			log_and_raise("Only one root can be an ssh path", e)
+
+		# root path need a final /
+		# if not self._config['root'][0].endswith('/'):
+		# 	self._config['root'][0] += '/'
+		# if not self._config['root'][1].endswith('/'):
+		# 	self._config['root'][1] += '/'
+
+		# root path need a final /
+		if self._config['root'][0].endswith('/'):
+			self._config['root'][0] = self._config['root'][0][:-1]
+		if self._config['root'][1].endswith('/'):
+			self._config['root'][1] = self._config['root'][1][:-1]
+
+	def _test(self, parsed_filters, sub_path):
+		for filters in parsed_filters:
+			logging.info("Test '" + sub_path + "' with filter: '" + filters.full + "'")
+			stat = 1
+			str_pos = 0
+			sum_filters = len(filters.values)
+			for pos in range(sum_filters):
+				# zero *, sub_path = filter
+				if sum_filters == 1 and filters.preglob == 0 and filters.postglob == 0 and sub_path == filters.values[0]:
+					logging.debug("'" + sub_path + "' matched filter: '" + str(filters.full) + "'")
+					return True
+				# no pre *, first pos, filter != sub_path
+				if filters.preglob == 0 and pos == 0 and filters.values[pos] != sub_path[:len(filters.values[pos])]:
+					stat = 0
+					break
+				# no post *, last pos, filter != sub_path
+				if filters.postglob == 0 and pos == sum_filters-1 and filters.values[pos] != sub_path[len(filters.values[pos])*-1:]:
+					stat = 0
+					break
+				# one filter, no pre or post *
+				if sum_filters == 1 and (filters.preglob == 0 or filters.postglob == 0):
+					logging.debug("'" + sub_path + "' matched filter: '" + str(filters.full) + "'")
+					return True
+				str_pos2 = sub_path[str_pos:].find(filters.values[pos])
+				if str_pos2 == -1:
+					stat = 0
+					break
+				str_pos += len(filters.values[pos])
+			if stat == 1:
+				logging.debug("'" + sub_path + "' matched filter: '" + str(filters.full) + "'")
+				return True
+			logging.debug("'" + sub_path + "' doesn't matched filter: '" + str(filters.full) + "'")
+		return False
+
+	def test_file(self, sub_path):
+		"""
+		Test if a file should be synced or not
+
+		Returns True if the file should synced.
+		Returns False if the file should ignored.
+
+		sub_path = relative path to file from root path
+		"""
+		if self._test(self.config_dict['ignore not file'], sub_path):
+			return True
+		if self._test(self.config_dict['ignore file'], sub_path):
+			return False
+		return True
+
+	def test_dir(self, sub_path):
+		"""
+		Test if a directory should be synced or not
+
+		Returns True if the directory should synced.
+		Returns False if the directory should ignored.
+
+		sub_path = relative path to directory from root path
+		"""
+		if self._test(self.config_dict['ignore not path'], sub_path):
+			return True
+		if self._test(self.config_dict['ignore path'], sub_path):
+			return False
+		return True
 
 	@property
 	def config_dict(self):

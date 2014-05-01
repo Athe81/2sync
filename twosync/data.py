@@ -1,32 +1,158 @@
-from twosync.utils import test_string, log_and_raise
+from stat import S_ISDIR, S_ISREG
 from collections import namedtuple
+from twosync import utils
+from enum import Enum
+import paramiko
 import hashlib
 import os
 import pickle
 import logging
+import shutil
 
-_filetype 	= namedtuple('_filetype', 'stat, moddate, size')
-_foldertype = namedtuple('_foldertype', 'stat')
+DiffType = Enum('DiffType', 'NONE NEW REMOVED TYPE MODE MTIME CONTENT')
+Direction = Enum('Direction', 'LEFT RIGHT')
 
+def do_sync(sub_path, src_data, dst_data):
+	def cp(sub_path, src_data, dst_data):
+		def cp_file(sub_path, src_data, dst_data):
+			if isinstance(src_data, SSHData):
+				try:
+					src_data.sftp_get(src_data.path + sub_path, dst_data.path + sub_path)
+				except IOError as e:
+					raise
+			elif isinstance(dst_data, SSHData):
+				try:
+					dst_data.sftp_put(src_data.path + sub_path, dst_data.path + sub_path)
+				except IOError as e:
+					raise
+			else:
+				shutil.copyfile(src_data.path + sub_path, dst_data.path + sub_path)
 
+		def mkdir(sub_path, src_data, dst_data):
+			if isinstance(dst_data, SSHData):
+				try:
+					dst_data.mkdir(dst_data.path + sub_path, int(src_data[sub_path].mode, 8))
+				except IOError as e:
+					raise
+			else:
+				os.mkdir(dst_data.path + sub_path, int(src_data[sub_path].mode, 8))
+
+		if isinstance(src_data[sub_path], DataFileType):
+			cp_file(sub_path, src_data, dst_data)
+		elif isinstance(src_data[sub_path], DataFolderType):
+			mkdir(sub_path, src_data, dst_data)
+
+	def chmod(sub_path, data, mode):
+		mode = int(mode, 8)
+		if isinstance(data, SSHData):
+			data.chmod(data.path + sub_path, mode)
+		else:
+			os.chmod(data.path + sub_path, mode)
+
+	def utime(sub_path, dst_data, mtime):
+		if isinstance(dst_data, SSHData):
+			dst_data.utime(dst_data.path + sub_path, mtime)
+		else:
+			os.utime(dst_data.path + sub_path, times=(mtime, mtime))
+
+	def rm(sub_path, dst_data):
+		def rmdir(sub_path, dst_data):
+			if isinstance(dst_data, SSHData):
+				dst_data.rmdir(dst_data.path + sub_path)
+			else:
+				os.rmdir(dst_data.path + sub_path)
+
+		def remove(sub_path, dst_data):
+			if isinstance(dst_data, SSHData):
+				dst_data.remove(dst_data.path + sub_path)
+			else:
+				os.remove(dst_data.path + sub_path)
+
+		if isinstance(dst_data[sub_path], DataFileType):
+			remove(sub_path, dst_data)
+		else:
+			rmdir(sub_path, dst_data)
+
+	diff = dst_data[sub_path].diff(src_data[sub_path])
+
+	if diff in [DiffType.TYPE, DiffType.REMOVED]:
+		rm(sub_path, dst_data)
+
+	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT]:
+		cp(sub_path, src_data, dst_data)
+
+	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE]:
+		chmod(sub_path, dst_data, src_data[sub_path].mode)
+
+	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE, DiffType.MTIME] and isinstance(src_data[sub_path], DataFileType):
+		utime(sub_path, dst_data, src_data[sub_path].mtime)
+
+class DataTypeTemplate():
+	def diff(self, data):
+		"""
+		Returns whats the difference from data compared to self as DiffType enum
+		"""
+		if self == data:
+			return DiffType.NONE
+
+		if isinstance(self, DataNoneType):
+			return DiffType.NEW
+
+		if isinstance(data, DataNoneType):
+			return DiffType.REMOVED
+
+		if type(self) != type(data):
+			return DiffType.TYPE
+
+		if isinstance(self, DataFolderType):
+			return DiffType.MODE
+
+		if self.size != data.size:
+			return DiffType.CONTENT
+
+		if self.mtime != data.mtime:
+			# TODO: Compare hash
+			# WHILE NOT TESTING HASH, WE RETURN, THAT THE CONTENT HAS CHANGED. JUST TO BE SECURE
+			# return DiffType.MTIME
+			return DiffType.CONTENT
+
+		if self.mode != data.mode:
+			return DiffType.MODE
+
+		raise ExitError("unknown diff %, %", (self, data))
+
+class DataFileType(namedtuple('DataFileType', 'mode, mtime, size'), DataTypeTemplate):
+	"""
+	namedtuple('DataFileType', 'mode, mtime, size') extended with diff functionality
+	"""
+
+class DataFolderType(namedtuple('DataFolderType', 'mode'), DataTypeTemplate):
+	"""
+	namedtuple('DataFileType', 'mode, mtime, size') extended with diff functionality
+	"""
+
+class DataNoneType(namedtuple('DataNoneType', ''), DataTypeTemplate):
+	"""
+	Special type for data, just for diff functionality
+	"""
 
 class BasicData(object):
 	def __init__(self):
 		self._data = dict()
 
-	def add_file(self, file, stat, moddate, size):
-		logging.info("Add file '" + file + "' for sync")
-		self._data[file] = _filetype(stat, moddate, size)
-		
-	def add_folder(self, folder, stat):
-		logging.info("Add folder '" + folder + "' for sync")
-		self._data[folder] = _foldertype(stat)
-
-	def get_data(self, path):
+	def __getitem__(self, key):
 		try:
-			return self._data[path]
+			return self._data[key]
 		except KeyError:
-			return None
+			return DataNoneType()
+
+	def add_file(self, sub_path, mode, mtime, size):
+		logging.info("Add file '" + sub_path + "' for sync")
+		self._data[sub_path] = DataFileType(mode, mtime, size)
+		
+	def add_folder(self, sub_path, mode):
+		logging.info("Add folder '" + sub_path + "' for sync")
+		self._data[sub_path] = DataFolderType(mode)
 
 	def remove(self, path):
 		del self._data[path]
@@ -46,18 +172,21 @@ class PersistenceData(BasicData):
 
 		# Update sync_data (saved files/folders) if config has changed
 		if config.config_changed == True:
+			remove = []
 			logging.info("Update PersistenceData with new config")
 			for path in self.data.keys():
-				if type(path) == _filetype:
-					print("File")
-					if test_string(config['ignore file'], file[1:]) == True:
-						self.remove_file(file)
-				elif type(path) == _foldertype:
-					print("Folder")
-					if test_string(config['ignore path'], folder[1:]) == True:
-						self.remove_folder(folder)
+				if isinstance(self.data[path], DataFileType):
+					if not config.test_file(path[1:]):
+						remove.append(path)
+				elif isinstance(self.data[path], DataFolderType):
+					if not config.test_folder(path[1:]):
+						remove.append(path)
 				else:
-					print("Corrupt data")
+					print("Corrupt data: type is '" + str(type(self.data[path])) + "'")
+
+			for path in remove:
+				self.remove(path)
+
 			config._save_config_hash()
 		
 	def _load_data(self):
@@ -70,9 +199,9 @@ class PersistenceData(BasicData):
 		except FileNotFoundError:
 			logging.warn("Could not load data from file: '" + self._path_data + "'. File not found")
 		except PermissionError as e:
-			log_and_raise("Could not load data from file: '" + self._path_data + "'. No Permission", e)
+			twosync.log_and_raise("Could not load data from file: '" + self._path_data + "'. No Permission", e)
 		except EOFError as e:
-			log_and_raise("Could not load data from file: '" + self._path_data + "'. File is corrupt", e)
+			twosync.log_and_raise("Could not load data from file: '" + self._path_data + "'. File is corrupt", e)
 	
 	def _save_data(self):
 		"""
@@ -82,143 +211,188 @@ class PersistenceData(BasicData):
 			with open(self._path_data, 'wb') as f: 
 				pickle.dump(self._data, f)
 		except Exception as e:
-			log_and_raise("Could not save data to: '" + self._path_data + "'", e)
+			twosync.log_and_raise("Could not save data to: '" + self._path_data + "'", e)
 	
-	def add_file(self, file, stat, moddate, size):
-		super().add_file(file, stat, moddate, size)
+	def add_file(self, file, mode, mtime, size):
+		super().add_file(file, mode, mtime, size)
 		self._save_data()
 		
-	def add_folder(self, file, stat):
-		super().add_folder(file, stat)
+	def add_folder(self, file, mode):
+		super().add_folder(file, mode)
+		self._save_data()
+
+	def add(self, sub_path, data):
+		self._data[sub_path] = data
 		self._save_data()
 		
 	def remove(self, path):
 		super().remove(path)
 		self._save_data()
 
-	def analyse_data(self, fsdata_1, fsdata_2):
-		"""
-		# Find the changed files and folders. Return 2 sets:
-		# 	set 1: changed files including conflicts
-		# 	set 2: conflicts
-		"""
-		changes_data1 = set([f for (f, *_) in (self.data.items() ^ fsdata_1.data.items())])
-		changes_data2 = set([f for (f, *_) in (self.data.items() ^ fsdata_2.data.items())])
-		conflicts = changes_data1 & changes_data2
-
-		# Remove conflicts on self, if fsdata's has no conflict
-		remove = set()
-		for conflict in conflicts:
-			if fsdata_1.get_data(conflict) == None and fsdata_2.get_data(conflict) == None:
-				self.remove(conflict)
-				remove.add(conflict)
-			elif fsdata_1.get_data(conflict) == fsdata_2.get_data(conflict):
-				if type(fsdata_1.get_data(conflict)) == twosync.data._filetype:
-					if get_hash(fsdata_1.path + conflict) == get_hash(fsdata_2.path + conflict):
-						self.add_file(conflict, fsdata_1.get_data(conflict).stat, fsdata_1.get_data(conflict).moddate, fsdata_1.get_data(conflict).size)
-						remove.add(conflict)
-				if type(fsdata_1.get_data(conflict)) == twosync.data._foldertype:
-					self.add_folder(conflict, fsdata_1.get_data(conflict).stat)
-					remove.add(conflict)
-
-		conflicts -= remove
-		changes = changes_data1 | changes_data2
-
-		return changes, conflicts
-
-	def get_change_details(self, data_1, data_2):
-		pass
-
 class FSData(BasicData):
-	def __init__(self, path, config_dict):
+	def __init__(self, path, config):
 		logging.info("Init FSData with path: '" + path + "'")
 		super().__init__()
 		self._path = path
-		if path[0:6] == 'ssh://':
-			log_and_raise("Error: ssh is not suported")
-		else:
-			self._find_files(config_dict)
+		self._find_files(config)
 
-	def _find_files(self, config_dict):
-		"""
-		Read files/folders from root's
-		
-		If file/folder match the filters it will be saved with last modfication date and permissions
-		"""
+	def _find_files(self, config):
+		paths_buf = []
+		paths = [self.path + '/']
+		while True:
+			for path in paths:
+				for sub_path in os.listdir(path):
+					attr = os.stat(path + sub_path)
+					if S_ISDIR(attr.st_mode):
+						if config.test_dir(path[len(self.path):] + sub_path):
+							sub_path += '/'
+							self.add_folder(path[len(self.path):] + sub_path, oct(attr.st_mode)[-3:])
+							paths_buf.append(path + sub_path)
+					elif S_ISREG(attr.st_mode):
+						if config.test_file(path[len(self.path):] + sub_path):
+							self.add_file(path[len(self.path):] + sub_path, oct(attr.st_mode)[-3:], abs(int(attr.st_mtime)), attr.st_size)
+			if len(paths_buf) == 0:
+				break
+			paths = paths_buf
+			paths_buf = []
 
-		len_root_path = len(self._path)
-		for path, _, files in os.walk(self._path, followlinks=False):
-			sub_path = path[len_root_path:]
+	def get_hash(self, sub_path):
+		return utils.get_hash(self.path + sub_path)
 
-			# Add files and folders if 'ignore not path' match to folder
-			if test_string(config_dict['ignore not path'], sub_path) == True:
-				self.add_folder(sub_path)
+	@property
+	def path(self):
+		return self._path
 
-				for file in files:
-					self.add_file(sub_path  + "/" + file)
-				return
-			
-			if test_string(config_dict['ignore path'], sub_path) == True:
-				return
-			
-			# Add while 'ignore path' doesn't match
-			self.add_folder(sub_path)
-			
-			for file in files:
-				# Add file if 'ignore not file' match the filename
-				if test_string(config_dict['ignore not file'], file) == True:
-					self.add_file(sub_path  + "/" + file)
-					continue
-				
-				# Ignore file if the 'ignore file' match the filename
-				if test_string(config_dict['ignore file'], file) == True:
-					continue
-				
-				# Add file if 'ignore not file' and 'ignore file' not matched
-				self.add_file(sub_path  + "/" + file)
+class SSHData(BasicData, paramiko.client.SSHClient):
+	class TSPolicy(paramiko.client.MissingHostKeyPolicy):
+		"""User-defined MissingHostKeyPolicy"""
 
-	def _stat(self, file):
-		"""
-		Return the permissions for a file or folder
-		"""
+		def missing_host_key(self, client, hostname, key):
+			# print(str(hostname))
+			# print(str(key.get_base64()))
+			# print(str([hex(x) for x in key.get_fingerprint()]))
+			print(str(key.get_fingerprint()))
+
+			# Raise paramiko.SSHException
+
+	def __init__(self, path, config):
+		logging.info("Init SSHData with path: '" + path + "'")
+		BasicData.__init__(self)
+		paramiko.client.SSHClient.__init__(self)
+
+		self._ssh_adr = path
+		self._host = None
+		self._port = 22
+		self._user = None
+		self._path = '/'
+
+		self._parse_adr(self._ssh_adr)
+		self.set_missing_host_key_policy(self.TSPolicy())
+
+		self.connect(self._host, self._port, self._user)
+		self._sftp_client = self.open_sftp()
+		self._find_files(config)
+
+	def _parse_adr(self, ssh_adr):
+		"""Returns a tuple with host, port, user and path from the parsed ssh adress"""
+		self._host = ssh_adr[6:]
+
+		if self._host.find('@') >= 0:
+			self._user, self._host = self._host.split('@')
+
+		if self._host.find("/") >= 0:
+			self._host, self._path = self._host.split("/", 1)
+
+		if self._host.find(':') >= 0:
+			self._host, portstr = self._host.split(':')
+			self._port = int(portstr)
+
+		# Load ssh_config
+		conf = paramiko.config.SSHConfig()
+		for config_file in ['/etc/ssh/ssh_config', '~/.ssh/config']:
+			try:
+				conf.parse(open(os.path.expanduser(config_file)))
+			except:
+				pass
+
+		# Update config with data from ssh_config
+		if 'user' in conf.lookup(self._host):
+			self._user = conf.lookup(self._host)['user']
+
+		if 'port' in conf.lookup(self._host):
+			self._port = int(conf.lookup(self._host)['port'])
+
+		# Must be the last. (after user, port)
+		if 'hostname' in conf.lookup(self._host):
+			self._host = conf.lookup(self._host)['hostname']
+
+	def _find_files(self, config):
+		paths_buf = []
+		paths = [self.path + '/']
+		while True:
+			for path in paths:
+				for sub_path in self._sftp_client.listdir_attr(path):
+					if S_ISDIR(sub_path.st_mode):
+						if config.test_dir(path[len(self.path):] + sub_path.filename):
+							sub_path.filename += '/'
+							self.add_folder(path[len(self.path):] + sub_path.filename, oct(sub_path.st_mode)[-3:])
+							paths_buf.append(path + sub_path.filename)
+					elif S_ISREG(sub_path.st_mode):
+						if config.test_file(path[len(self.path):] + sub_path.filename):
+							self.add_file(path[len(self.path):] + sub_path.filename, oct(sub_path.st_mode)[-3:], abs(int(sub_path.st_mtime)), sub_path.st_size)
+			if len(paths_buf) == 0:
+				break
+			paths = paths_buf
+			paths_buf = []
+
+	def get_hash(self, sub_path):
+		stdin, stdout, stderr = self.exec_command('sha1sum "' + self.path + sub_path + '"', timeout=10)
+
+		err = stderr.read()
+		if len(err) > 0:
+			print('Error returned:', err)
+		data = stdout.read()
+		data, _ = data.split(' ', 1)
+		return data
+
+	def _sftp_connection(self):
+		if not self.get_transport().is_authenticated():
+			self.connect(self._host, self._port, self._user)
 		try:
-			return oct(os.lstat(file).st_mode)[-3:]
-		except PermissionError:
-			log_and_raise("Could not read stat from: '" + file + "'", e)
-	
-	def _moddate(self, file):
-		"""
-		Return the last modification date from a file or folder
-		"""
-		try:
-			return os.lstat(file).st_mtime
-		except Exception as e:
-			log_and_raise("Could not read moddate from: '" + file + "'", e)
+			# Test ist connection ist alive
+			self._sftp_client.normalize('.')
+		except:
+			# Reconnect if not
+			self._sftp_client = self.open_sftp()
 
-	def _size(self, file):
-		"""
-		Return the file size
-		"""
-		try:
-			return os.path.getsize(file)
-		except OSError as e:
-			log_and_raise("Could not read size from: '" + file + "'", e)
-	
-	def add_file(self, file):
-		path = self._path + "/" + file
-		super().add_file(file, self._stat(path), self._moddate(path), self._size(path))
-		
-	def add_folder(self, folder):
-		path = self._path + "/" + folder
-		super().add_folder(folder, self._stat(path))
+	def sftp_get(self, remotepath, localpath):
+		self._sftp_connection()
+		self._sftp_client.get(remotepath, localpath)
 
-	def add(self, path):
-		# path = self._path + "/" + path
-		if os.path.isfile(path):
-			self.add_file(path)
-		elif os.path.isdir(path):
-			self.add_folder(path)
-		
+	def sftp_put(self, localpath, remotepath):
+		self._sftp_connection()
+		self._sftp_client.put(localpath, remotepath)
+
+	def chmod(self, path, mode):
+		self._sftp_connection()
+		self._sftp_client.chmod(path, mode)
+
+	def utime(self, path, mtime):
+		self._sftp_connection()
+		self._sftp_client.utime(path, times=(mtime, mtime))
+
+	def mkdir(self, path, mode):
+		self._sftp_connection()
+		self._sftp_client.mkdir(path, mode)
+
+	def rmdir(self, path):
+		self._sftp_connection()
+		self._sftp_client.rmdir(path)
+
+	def remove(self, path):
+		self._sftp_connection()
+		self._sftp_client.remove(path)
+
 	@property
 	def path(self):
 		return self._path
