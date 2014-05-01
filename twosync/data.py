@@ -12,7 +12,7 @@ import shutil
 DiffType = Enum('DiffType', 'NONE NEW REMOVED TYPE MODE MTIME CONTENT')
 Direction = Enum('Direction', 'LEFT RIGHT')
 
-def do_sync(sub_path, src_data, dst_data):
+def do_sync(synclist):
 	def cp(sub_path, src_data, dst_data):
 		def cp_file(sub_path, src_data, dst_data):
 			if isinstance(src_data, SSHData):
@@ -73,19 +73,30 @@ def do_sync(sub_path, src_data, dst_data):
 		else:
 			rmdir(sub_path, dst_data)
 
-	diff = dst_data[sub_path].diff(src_data[sub_path])
+	syncnew = [sync for sync in synclist if sync[2][sync[0]].diff(sync[1][sync[0]]) == DiffType.NEW]
+	syncrm = [sync for sync in synclist if sync[2][sync[0]].diff(sync[1][sync[0]]) == DiffType.REMOVED]
+	syncnew.sort(key=lambda path: path[0])
+	syncrm.sort(key=lambda path: path[0], reverse=True)
+	synclist = [sync for sync in synclist if sync not in syncnew and sync not in syncrm]
 
-	if diff in [DiffType.TYPE, DiffType.REMOVED]:
-		rm(sub_path, dst_data)
+	for sync in syncnew + synclist + syncrm:
+		sub_path = sync[0]
+		src_data = sync[1]
+		dst_data = sync[2]
 
-	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT]:
-		cp(sub_path, src_data, dst_data)
+		diff = dst_data[sub_path].diff(src_data[sub_path])
 
-	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE]:
-		chmod(sub_path, dst_data, src_data[sub_path].mode)
+		if diff in [DiffType.TYPE, DiffType.REMOVED]:
+			rm(sub_path, dst_data)
 
-	if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE, DiffType.MTIME] and isinstance(src_data[sub_path], DataFileType):
-		utime(sub_path, dst_data, src_data[sub_path].mtime)
+		if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT]:
+			cp(sub_path, src_data, dst_data)
+
+		if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE]:
+			chmod(sub_path, dst_data, src_data[sub_path].mode)
+
+		if diff in [DiffType.NEW, DiffType.TYPE, DiffType.CONTENT, DiffType.MODE, DiffType.MTIME] and isinstance(src_data[sub_path], DataFileType):
+			utime(sub_path, dst_data, src_data[sub_path].mtime)
 
 class DataTypeTemplate():
 	def diff(self, data):

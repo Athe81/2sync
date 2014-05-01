@@ -232,18 +232,23 @@ class MainWindow(Gtk.Window):
 			self.treeview.grab_focus()
 
 	def sync(self, _):
+		synclist = []
 		for entry in self.liststore:
 			if entry[2] == Gtk.STOCK_CLOSE:
 				continue
 			elif entry[2] == "go-previous":
-				data.do_sync(entry[0], root1, root0)
-				# utils.do_sync(entry[0], root1, root0)
-				pdata.add(entry[0], root1[entry[0]])
+				synclist.append((entry[0], root1, root0))
+				# data.do_sync(entry[0], root1, root0)
+				# pdata.add(entry[0], root1[entry[0]])
 			elif entry[2] == "go-next":
-				data.do_sync(entry[0], root0, root1)
-				# utils.do_sync(root0, root1, entry[0])
-				pdata.add(entry[0], root0[entry[0]])
+				synclist.append((entry[0], root0, root1))
+				# data.do_sync(entry[0], root0, root1)
+				# pdata.add(entry[0], root0[entry[0]])
 		
+		data.do_sync(synclist)
+		for sync in synclist:
+			pdata.add(sync[0], sync[1][sync[0]])
+
 		next_treeiter = self.liststore.get_iter_first()
 		while next_treeiter != None:
 			treeiter = next_treeiter
