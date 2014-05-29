@@ -50,16 +50,11 @@ class Config(object):
 		
 		saved_hash = ''
 		try:
-			f = open(self._path_hash, 'r')
+			with open(self._path_hash, 'r') as f:
+				saved_hash = f.read()
+				saved_hash[:-1]
 		except FileNotFoundError:
 			logging.info("No hash key for config-file: '" + self._path_config + "'")
-		except PermissionError as e:
-			log_and_raise("No permission to read hash-file: '" + self._path_hash + "'", e)
-			pass
-		else:
-			saved_hash = f.read()
-			saved_hash[:-1]
-			f.close()
 		
 		if self._hexdigest == saved_hash:
 			logging.info("config-file has not changed")
@@ -69,13 +64,8 @@ class Config(object):
 			self._config_changed = True
 	
 	def _save_config_hash(self):
-		try:
-			f = open(self._path_hash, 'w')
+		with open(self._path_hash, 'w') as f:
 			f.write(self._hexdigest)
-		except PermissionError as e:
-			log_and_raise("No permission to write hash-file: '" + self._path_hash + "'", e)
-		else:
-			f.close()
 	
 	def _parse_exp(self, value):
 		"""
@@ -101,32 +91,25 @@ class Config(object):
 		
 		logging.info("Parse config-file: '" + self._path_config + "'")
 
-		try:
-			# Open config file and parse content.
-			for line in open(self._path_config, 'r'):
-				# remove whitespaces
-				line = line.strip()
-				# ignore if comment and empty line
-				if line[0:1] == '#' or len(line) == 0:
-					continue
-				# split line into key, value
-				key, value = line.split("=", 1)
-				# remove whitespaces
-				key = key.strip()
-				value = value.strip()
-				if not key in (self._keys + self._parse_keys):
-					log_and_raise("Invalid key: '" + key + "' in config-file: '" + self._path_config + "'")
-				if key in self._parse_keys:
-					value = self._parse_exp(value)
-				# save value to key
-				config = self._config[key]
-				config.append(value)
-				
-		except FileNotFoundError as e:
-			log_and_raise("Config-file: '" + self._path_config + "' does not exist", e)
-		
-		except PermissionError as e:
-			log_and_raise("No permission on config-file: '" + self._path_config + "'", e)
+		# Open config file and parse content.
+		for line in open(self._path_config, 'r'):
+			# remove whitespaces
+			line = line.strip()
+			# ignore if comment and empty line
+			if line[0:1] == '#' or len(line) == 0:
+				continue
+			# split line into key, value
+			key, value = line.split("=", 1)
+			# remove whitespaces
+			key = key.strip()
+			value = value.strip()
+			if not key in (self._keys + self._parse_keys):
+				log_and_raise("Invalid key: '" + key + "' in config-file: '" + self._path_config + "'")
+			if key in self._parse_keys:
+				value = self._parse_exp(value)
+			# save value to key
+			config = self._config[key]
+			config.append(value)
 			
 		# Check if 2 roots exist
 		if len(self._config['root']) != 2:

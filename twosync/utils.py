@@ -31,14 +31,8 @@ def get_hash(file):
 	"""
 	_config_hash = hashlib.sha1()
 	
-	try:
-		f = open(file, 'rb')
+	with open(file, 'rb') as f:
 		_config_hash.update(f.read())
-	except FileNotFoundError as e:
-		log_and_raise("File: '" + file + "' does not exist", e)
-	except PermissionError as e:
-		log_and_raise("No permission to file: '" + file + "'", e)
-	f.close()
 	return _config_hash.hexdigest()
 
 def get_str_hash(content):
@@ -50,11 +44,6 @@ def get_str_hash(content):
 	return _config_hash.hexdigest()
 
 def find_changes(pdata, fsdata_1, fsdata_2):
-	"""
-	Find the changed files and folders. Return 2 sets:
-		set 1: changed files including conflicts
-		set 2: conflicts
-	"""
 	changes_data1 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_1.data.items())])
 	changes_data2 = set([f for (f, *_) in (pdata.data.items() ^ fsdata_2.data.items())])
 	conflicts = changes_data1 & changes_data2

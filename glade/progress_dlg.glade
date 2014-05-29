@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated with glade 3.16.1 -->
+<interface>
+  <requires lib="gtk+" version="3.10"/>
+  <object class="GtkMessageDialog" id="dlg_prg">
+    <property name="width_request">600</property>
+    <property name="height_request">200</property>
+    <property name="can_focus">False</property>
+    <property name="has_focus">True</property>
+    <property name="events"/>
+    <property name="margin_bottom">12</property>
+    <property name="title" translatable="yes">2sync</property>
+    <property name="resizable">False</property>
+    <property name="modal">True</property>
+    <property name="window_position">center</property>
+    <property name="type_hint">dialog</property>
+    <property name="urgency_hint">True</property>
+    <property name="gravity">center</property>
+    <property name="has_resize_grip">False</property>
+    <property name="buttons">close</property>
+    <property name="text" translatable="yes">2sync</property>
+    <property name="secondary_text" translatable="yes">2sync</property>
+    <signal name="response" handler="on_dlg_prg_response" swapped="no"/>
+    <child internal-child="vbox">
+      <object class="GtkBox" id="dlg_prg_vbox">
+        <property name="can_focus">False</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">2</property>
+        <child internal-child="action_area">
+          <object class="GtkButtonBox" id="dlg_prg_action_area">
+            <property name="can_focus">False</property>
+            <property name="layout_style">end</property>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="fill">True</property>
+            <property name="pack_type">end</property>
+            <property name="position">-1</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkProgressBar" id="dlg_prg_bar">
+            <property name="visible">True</property>
+            <property name="can_focus">False</property>
+            <property name="show_text">True</property>
+          </object>
+          <packing>
+            <property name="expand">True</property>
+            <property name="fill">False</property>
+            <property name="position">2</property>
+          </packing>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
