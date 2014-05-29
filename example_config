@@ -1,0 +1,25 @@
+#################################################
+## This is an example config file.             ##
+## Edit it and save it under ~/.twosync/       ##
+#################################################
+
+# You need exactly two root's
+root = /path/to/dir
+root = ssh://MYSERVER//path/to/dir
+
+######################################################
+## Use * as placeholder for zero or more characters ##
+######################################################
+
+# ignore file: If the filename match. The file won't be syncronised
+# ignore path: If the path match. The path won't be syncronised. Path is only the relative part from root.
+# ignore not file/path: Overwrites the ignore file/path parameter. So, you can unignore file's / folder's
+
+ignore file = .*
+ignore file = *~
+
+ignore path = */.git
+ignore path = */__pycache__
+
+# ignore not file = *.pdf
+# ignore not path = */always_sync
