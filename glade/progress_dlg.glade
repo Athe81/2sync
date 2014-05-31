@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.16.1 -->
+<!-- Generated with glade 3.18.3 -->
 <interface>
   <requires lib="gtk+" version="3.10"/>
-  <object class="GtkMessageDialog" id="dlg_prg">
+  <object class="GtkMessageDialog" id="dlg">
     <property name="width_request">600</property>
     <property name="height_request">200</property>
     <property name="can_focus">False</property>
@@ -20,14 +20,14 @@
     <property name="buttons">close</property>
     <property name="text" translatable="yes">2sync</property>
     <property name="secondary_text" translatable="yes">2sync</property>
-    <signal name="response" handler="on_dlg_prg_response" swapped="no"/>
+    <signal name="response" handler="on_dlg_response" swapped="no"/>
     <child internal-child="vbox">
-      <object class="GtkBox" id="dlg_prg_vbox">
+      <object class="GtkBox" id="vbox">
         <property name="can_focus">False</property>
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
         <child internal-child="action_area">
-          <object class="GtkButtonBox" id="dlg_prg_action_area">
+          <object class="GtkButtonBox" id="btn_box">
             <property name="can_focus">False</property>
             <property name="layout_style">end</property>
           </object>
@@ -39,7 +39,7 @@
           </packing>
         </child>
         <child>
-          <object class="GtkProgressBar" id="dlg_prg_bar">
+          <object class="GtkProgressBar" id="prg_bar">
             <property name="visible">True</property>
             <property name="can_focus">False</property>
             <property name="show_text">True</property>

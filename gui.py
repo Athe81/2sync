@@ -276,36 +276,24 @@ class MainWin(object):
 		thread.daemon = True
 		thread.start()
 
-class ProgressDlg(object):
-	def __init__(self, first_text, secondary_text, transient_for=None):
+class DlgTemplate(object):
+	def __init__(self, first_text, secondary_text, gui_file, transient_for=None):
 		self.builder = Gtk.Builder()
-		self.builder.add_from_file("glade/progress_dlg.glade")
+		self.builder.add_from_file(gui_file)
 		self.builder.connect_signals(self)
 
-		self.dlg = self.builder.get_object('dlg_prg')
-		self.prg = self.builder.get_object('dlg_prg_bar')
+		self.dlg = self.builder.get_object('dlg')
 
 		self.set_first_text(first_text)
 		self.set_secondary_text(secondary_text)
-		self.set_transient_for(transient_for)
-
-		self.btn_close_event = Gtk.main_quit
+		if transient_for is not None:
+			self.set_transient_for(transient_for)
 
 	def show_all(self):
 		GLib.idle_add(self.dlg.show_all)
 
-	def run(self):
-		GLib.idle_add(self.dlg.run)
-
 	def close(self):
 		GLib.idle_add(self.dlg.close)
-
-	def update(self, secondary_text=None, fraction=None):
-		if secondary_text != None:
-			self.set_secondary_text(secondary_text)
-
-		if fraction != None:
-			self.set_fraction(fraction)
 
 	def set_first_text(self, first_text):
 		GLib.idle_add(self.dlg.set_markup, '<b>%s</b>' % first_text)
@@ -315,6 +303,29 @@ class ProgressDlg(object):
 
 	def set_transient_for(self, transient_for):
 		GLib.idle_add(self.dlg.set_transient_for, transient_for)
+
+	def run(self):
+		def _run(event):
+			self.dlg.run()
+			event.set()
+		event = threading.Event()
+		GLib.idle_add(_run, event)
+		event.wait()
+		# GLib.idle_add(self.btn_close_event)
+
+class ProgressDlg(DlgTemplate):
+	def __init__(self, first_text, secondary_text, transient_for=None):
+		super().__init__(first_text, secondary_text, "glade/progress_dlg.glade", transient_for)
+
+		self.prg = self.builder.get_object('prg_bar')
+		self.btn_close_event = Gtk.main_quit
+
+	def update(self, secondary_text=None, fraction=None):
+		if secondary_text != None:
+			self.set_secondary_text(secondary_text)
+
+		if fraction != None:
+			self.set_fraction(fraction)
 
 	def set_fraction(self, fraction):
 		GLib.idle_add(self.prg.set_fraction, fraction)
@@ -325,52 +336,19 @@ class ProgressDlg(object):
 	###############################
 	## signal events
 	###############################
-	def on_dlg_prg_response(self, widget, response, *args):
+	def on_dlg_response(self, widget, response, *args):
 		if response == Gtk.ResponseType.CLOSE:
 			self.btn_close_event()
-		# elif response == Gtk.ResponseType.DELETE_EVENT:
-		# 	widget.hide()
 
-	# def on_dlg_prg_delete_event(self, widget, response=None):
-	# 	widget.hide()
-
-class ErrorDlg(object):
+class ErrorDlg(DlgTemplate):
 	def __init__(self, first_text, secondary_text, transient_for=None):
-		self.builder = Gtk.Builder()
-		self.builder.add_from_file("glade/error_dlg.glade")
-		self.builder.connect_signals(self)
-
-		self.dlg = self.builder.get_object('dlg_err')
-
-		self.set_first_text(first_text)
-		self.set_secondary_text(secondary_text)
-		self.set_transient_for(transient_for)
+		super().__init__(first_text, secondary_text, "glade/error_dlg.glade", transient_for)
 
 		self.btn_close_event = Gtk.main_quit
 
-	def show_all(self):
-		GLib.idle_add(self.dlg.show_all)
-
 	def run(self):
-		def _run(event):
-			self.dlg.run()
-			event.set()
-		event = threading.Event()
-		GLib.idle_add(_run, event)
-		event.wait()
+		super().run()
 		GLib.idle_add(self.btn_close_event)
-
-	def close(self):
-		GLib.idle_add(self.dlg.close)
-
-	def set_first_text(self, first_text):
-		GLib.idle_add(self.dlg.set_markup, '<b>%s</b>' % first_text)
-
-	def set_secondary_text(self, secondary_text):
-		GLib.idle_add(self.dlg.format_secondary_text, secondary_text)
-
-	def set_transient_for(self, transient_for):
-		GLib.idle_add(self.dlg.set_transient_for, transient_for)
 
 	def set_btn_close_event(self, event):
 		self.btn_close_event = event
@@ -378,7 +356,7 @@ class ErrorDlg(object):
 	###############################
 	## signal events
 	###############################
-	def on_dlg_err_response(self, widget, response, *args):
+	def on_dlg_response(self, widget, response, *args):
 		if response == Gtk.ResponseType.OK:
 			if isinstance(self.btn_close_event, list):
 				for event in self.btn_close_event:
@@ -386,61 +364,23 @@ class ErrorDlg(object):
 			else:
 				self.btn_close_event()
 				GLib.idle_add(self.dlg.close)
-		# elif response == Gtk.ResponseType.DELETE_EVENT:
-		# 	widget.hide()
 
-	# def on_dlg_prg_delete_event(self, widget, response=None):
-	# 	widget.hide()
-
-class MissingHostKeyDlg(object):
+class MissingHostKeyDlg(DlgTemplate):
 	def __init__(self, first_text, secondary_text, transient_for=None):
-		self.builder = Gtk.Builder()
-		self.builder.add_from_file("glade/missing_host_key_dlg.glade")
-		self.builder.connect_signals(self)
-
-		self.dlg = self.builder.get_object('dlg_host_key_policy')
-
-		self.set_first_text(first_text)
-		self.set_secondary_text(secondary_text)
+		super().__init__(first_text, secondary_text, "glade/missing_host_key_dlg.glade", transient_for)
 		if transient_for != None:
 			self.set_transient_for(transient_for)
-
-		self.btn_close_event = Gtk.main_quit
-
 		self._answer = None
 
-	def show_all(self):
-		GLib.idle_add(self.dlg.show_all)
-
 	def ask(self):
-		def _ask(event):
-			self.dlg.run()
-			event.set()
-
-		event = threading.Event()
-		GLib.idle_add(_ask, event)
-		event.wait()
+		super().run()
 		GLib.idle_add(self.dlg.close)
-
 		return self._answer
-
-	def close(self):
-		GLib.idle_add(self.dlg.close)
-
-	def set_first_text(self, first_text):
-		GLib.idle_add(self.dlg.set_markup, '<b>%s</b>' % first_text)
-
-	def set_secondary_text(self, secondary_text):
-		GLib.idle_add(self.dlg.format_secondary_text, secondary_text)
-
-	def set_transient_for(self, transient_for):
-		GLib.idle_add(self.dlg.set_transient_for, transient_for)
 
 	###############################
 	## signal events
 	###############################
-	def on_dlg_host_key_policy_response(self, widget, response):
-		print(response)
+	def on_dlg_response(self, widget, response):
 		if response == Gtk.ResponseType.YES:
 			self._answer = True
 
