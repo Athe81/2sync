@@ -33,27 +33,22 @@ class SyncData(object):
 				sub_path_tmp = '%s/.ts_%s_%s' % (sub_path_tmp[0], sub_path_tmp[1], utils.get_str_hash(sub_path))
 
 				if isinstance(src_data, SSHData):
-					try:
-						src_data.sftp_get("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
-						shutil.move("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
-					except Exception as e:
-						raise
+					src_data.sftp_get("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
+					shutil.move("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 				elif isinstance(dst_data, SSHData):
+					dst_data.sftp_put("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
 					try:
-						dst_data.sftp_put("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
-						dst_data.sftp_rename("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
+						dst_data.sftp_remove("%s%s" % (dst_data.path, sub_path))
 					except Exception as e:
-						raise
+						pass
+					dst_data.sftp_rename("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 				else:
 					shutil.copyfile("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp))
 					shutil.move("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 
 			def mkdir(sub_path, src_data, dst_data):
 				if isinstance(dst_data, SSHData):
-					try:
-						dst_data.mkdir("%s%s" % (dst_data.path, sub_path), int(src_data[sub_path].mode, 8))
-					except Exception as e:
-						raise
+					dst_data.mkdir("%s%s" % (dst_data.path, sub_path), int(src_data[sub_path].mode, 8))
 				else:
 					os.mkdir("%s%s" % (dst_data.path, sub_path), int(src_data[sub_path].mode, 8))
 
@@ -186,7 +181,7 @@ class BasicData(object):
 	def add_file(self, sub_path, mode, mtime, size):
 		logging.info("Add file '" + sub_path + "' for sync")
 		self._data[sub_path] = DataFileType(mode, mtime, size)
-		
+
 	def add_folder(self, sub_path, mode):
 		logging.info("Add folder '" + sub_path + "' for sync")
 		self._data[sub_path] = DataFolderType(mode)
@@ -228,7 +223,7 @@ class PersistenceData(BasicData):
 				self.remove(path)
 
 			config._save_config_hash()
-		
+
 	def _load_data(self):
 		"""
 		Loads the saved information about synchronised files and folders
@@ -238,18 +233,18 @@ class PersistenceData(BasicData):
 				self._data = pickle.load(f)
 		except FileNotFoundError as e:
 			pass
-	
+
 	def _save_data(self):
 		"""
 		Save the informations about synchronised files and folders
 		"""
-		with open(self._path_data, 'wb') as f: 
+		with open(self._path_data, 'wb') as f:
 			pickle.dump(self._data, f)
-	
+
 	def add_file(self, file, mode, mtime, size):
 		super().add_file(file, mode, mtime, size)
 		self._save_data()
-		
+
 	def add_folder(self, file, mode):
 		super().add_folder(file, mode)
 		self._save_data()
@@ -258,7 +253,7 @@ class PersistenceData(BasicData):
 		super().add(sub_path, data)
 		# self._data[sub_path] = data
 		self._save_data()
-		
+
 	def remove(self, path):
 		super().remove(path)
 		self._save_data()
@@ -306,7 +301,7 @@ class SSHData(BasicData, paramiko.client.SSHClient):
 		# Init
 		BasicData.__init__(self)
 		paramiko.client.SSHClient.__init__(self)
-		
+
 		# Load known_hosts
 		self.load_system_host_keys()
 		try:
@@ -404,6 +399,9 @@ class SSHData(BasicData, paramiko.client.SSHClient):
 
 	def sftp_rename(self, old_path, new_path):
 		self._sftp_client.rename(old_path, new_path)
+
+	def sftp_remove(self, path):
+		self._sftp_client.remove(path)
 
 	def chmod(self, path, mode):
 		self._sftp_client.chmod(path, mode)
