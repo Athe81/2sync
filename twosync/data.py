@@ -211,10 +211,10 @@ class PersistenceData(BasicData):
 			logging.info("Update PersistenceData with new config")
 			for path in self.data.keys():
 				if isinstance(self.data[path], DataFileType):
-					if not config.test_file(path[1:]):
+					if not config.test_file(path):
 						remove.append(path)
 				elif isinstance(self.data[path], DataFolderType):
-					if not config.test_dir(path[1:]):
+					if not config.test_dir(path):
 						remove.append(path)
 				else:
 					print("Corrupt data: type is '" + str(type(self.data[path])) + "'")
