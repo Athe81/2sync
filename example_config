@@ -17,6 +17,8 @@ root = ssh://MYSERVER//path/to/dir
 
 ignore file = .*
 ignore file = *~
+# ignore file not fully copied
+ignore file = .ts_*
 
 ignore path = */.git
 ignore path = */__pycache__

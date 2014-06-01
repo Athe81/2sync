@@ -311,7 +311,6 @@ class DlgTemplate(object):
 		event = threading.Event()
 		GLib.idle_add(_run, event)
 		event.wait()
-		# GLib.idle_add(self.btn_close_event)
 
 class ProgressDlg(DlgTemplate):
 	def __init__(self, first_text, secondary_text, transient_for=None):

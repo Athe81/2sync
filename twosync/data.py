@@ -28,27 +28,34 @@ class SyncData(object):
 	def sync_next(self, callback=None):
 		def cp(sub_path, src_data, dst_data, callback):
 			def cp_file(sub_path, src_data, dst_data, callback):
+				# temporary file name for secure copy
+				sub_path_tmp = sub_path.rsplit("/", 1)
+				sub_path_tmp = '%s/.ts_%s_%s' % (sub_path_tmp[0], sub_path_tmp[1], utils.get_str_hash(sub_path))
+
 				if isinstance(src_data, SSHData):
 					try:
-						src_data.sftp_get(src_data.path + sub_path, dst_data.path + sub_path, callback)
+						src_data.sftp_get("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
+						shutil.move("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 					except Exception as e:
 						raise
 				elif isinstance(dst_data, SSHData):
 					try:
-						dst_data.sftp_put(src_data.path + sub_path, dst_data.path + sub_path, callback)
+						dst_data.sftp_put("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp), callback)
+						dst_data.sftp_rename("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 					except Exception as e:
 						raise
 				else:
-					shutil.copyfile(src_data.path + sub_path, dst_data.path + sub_path)
+					shutil.copyfile("%s%s" % (src_data.path, sub_path), "%s%s" % (dst_data.path, sub_path_tmp))
+					shutil.move("%s%s" % (dst_data.path, sub_path_tmp), "%s%s" % (dst_data.path, sub_path))
 
 			def mkdir(sub_path, src_data, dst_data):
 				if isinstance(dst_data, SSHData):
 					try:
-						dst_data.mkdir(dst_data.path + sub_path, int(src_data[sub_path].mode, 8))
+						dst_data.mkdir("%s%s" % (dst_data.path, sub_path), int(src_data[sub_path].mode, 8))
 					except Exception as e:
 						raise
 				else:
-					os.mkdir(dst_data.path + sub_path, int(src_data[sub_path].mode, 8))
+					os.mkdir("%s%s" % (dst_data.path, sub_path), int(src_data[sub_path].mode, 8))
 
 			if isinstance(src_data[sub_path], DataFileType):
 				cp_file(sub_path, src_data, dst_data, callback)
@@ -286,7 +293,7 @@ class FSData(BasicData):
 			paths_buf = []
 
 	def get_hash(self, sub_path):
-		return utils.get_hash(self.path + sub_path)
+		return utils.get_hash("%s%s" % (self.path, sub_path))
 
 	@property
 	def path(self):
@@ -385,7 +392,7 @@ class SSHData(BasicData, paramiko.client.SSHClient):
 		err = stderr.read()
 		if len(err) > 0:
 			print('Error returned:', err)
-		data = stdout.read()
+		data = stdout.read().decode()
 		data, _ = data.split(' ', 1)
 		return data
 
@@ -394,6 +401,9 @@ class SSHData(BasicData, paramiko.client.SSHClient):
 
 	def sftp_put(self, localpath, remotepath, callback=None):
 		self._sftp_client.put(localpath, remotepath, callback)
+
+	def sftp_rename(self, old_path, new_path):
+		self._sftp_client.rename(old_path, new_path)
 
 	def chmod(self, path, mode):
 		self._sftp_client.chmod(path, mode)
