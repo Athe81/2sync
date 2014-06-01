@@ -120,12 +120,6 @@ class Config(object):
 			log_and_raise("Only one root can be an ssh path", e)
 
 		# root path need a final /
-		# if not self._config['root'][0].endswith('/'):
-		# 	self._config['root'][0] += '/'
-		# if not self._config['root'][1].endswith('/'):
-		# 	self._config['root'][1] += '/'
-
-		# root path need a final /
 		if self._config['root'][0].endswith('/'):
 			self._config['root'][0] = self._config['root'][0][:-1]
 		if self._config['root'][1].endswith('/'):
@@ -174,9 +168,9 @@ class Config(object):
 
 		sub_path = relative path to file from root path
 		"""
-		if self._test(self.config_dict['ignore not file'], sub_path):
+		if self._test(self.config_dict['ignore not file'], sub_path.rsplit('/', 1)[1]):
 			return True
-		if self._test(self.config_dict['ignore file'], sub_path):
+		if self._test(self.config_dict['ignore file'], sub_path.rsplit('/', 1)[1]):
 			return False
 		return True
 
